@@ -1,0 +1,54 @@
+# .gitignore - Terraform and IDE exclusions
+
+# Terraform local files
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.*
+tfplan
+tfplan-*
+crash.log
+crash.*.log
+
+# IDE files
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.vscode/
+*.code-workspace
+
+# OS files
+Thumbs.db
+
+# Sensitive files (secrets, credentials)
+*.tfvars
+!terraform.tfvars.example
+*.tfvars.json
+.env
+.env.local
+
+# Logs
+*.log
+logs/
+*.log
+
+# Local overrides
+terraform.tfvars.local
+override.tf
+
+# Temporary files
+*.tmp
+*.bak
+*.backup
+
+# Python cache (if using any Python tooling)
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Node cache (if using any Node tooling)
+node_modules/
+npm-debug.log
+yarn-error.log

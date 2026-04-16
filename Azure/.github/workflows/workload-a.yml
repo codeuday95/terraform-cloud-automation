@@ -1,0 +1,147 @@
+name: Workload-A - Deploy Application Infrastructure
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'workloads/workload-a/**'
+      - 'modules/**'
+      - '.github/workflows/workload-a.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'workloads/workload-a/**'
+      - 'modules/**'
+
+env:
+  TERRAFORM_VERSION: '1.5.0'
+
+jobs:
+  workload-a-plan:
+    name: Workload-A Plan - ${{ matrix.environment }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+    strategy:
+      matrix:
+        environment: [dev, prod]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.WORKLOAD_A_SP_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Terraform Init
+        working-directory: ./workloads/workload-a
+        run: |
+          terraform init \
+            -backend-config=resource_group_name=${{ secrets.TFSTATE_RG }} \
+            -backend-config=storage_account_name=${{ secrets.TFSTATE_SA }} \
+            -backend-config=container_name=workload-a \
+            -backend-config=key=workload-a-${{ matrix.environment }}.tfstate
+
+      - name: Terraform Plan
+        working-directory: ./workloads/workload-a
+        run: |
+          terraform plan \
+            -var-file=${{ matrix.environment }}/terraform.tfvars \
+            -var subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }} \
+            -var tenant_id=${{ secrets.AZURE_TENANT_ID }} \
+            -var client_id=${{ secrets.WORKLOAD_A_SP_CLIENT_ID }} \
+            -out=tfplan-${{ matrix.environment }}
+
+      - name: Upload Plan Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: workload-a-tfplan-${{ matrix.environment }}
+          path: workloads/workload-a/tfplan-${{ matrix.environment }}
+          retention-days: 7
+
+      - name: Comment PR with Plan Summary
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## Workload-A Terraform Plan - ${{ matrix.environment }}\n✓ Plan completed\n\nWaiting for approval to apply`
+            });
+
+  workload-a-apply:
+    name: Workload-A Apply - ${{ matrix.environment }}
+    needs: workload-a-plan
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    strategy:
+      matrix:
+        environment: [dev, prod]
+      max-parallel: 1
+    environment:
+      name: workload-a-${{ matrix.environment }}
+      url: https://portal.azure.com
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.WORKLOAD_A_SP_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Download Plan Artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: workload-a-tfplan-${{ matrix.environment }}
+          path: workloads/workload-a/
+
+      - name: Terraform Init
+        working-directory: ./workloads/workload-a
+        run: |
+          terraform init \
+            -backend-config=resource_group_name=${{ secrets.TFSTATE_RG }} \
+            -backend-config=storage_account_name=${{ secrets.TFSTATE_SA }} \
+            -backend-config=container_name=workload-a \
+            -backend-config=key=workload-a-${{ matrix.environment }}.tfstate
+
+      - name: Terraform Apply
+        working-directory: ./workloads/workload-a
+        run: terraform apply -auto-approve tfplan-${{ matrix.environment }}
+
+      - name: Export Outputs
+        working-directory: ./workloads/workload-a
+        run: |
+          terraform output -json > outputs-${{ matrix.environment }}.json
+          echo "Workload-A deployment (${{ matrix.environment }}) completed successfully"
+
+      - name: Upload Outputs
+        uses: actions/upload-artifact@v3
+        with:
+          name: workload-a-outputs-${{ matrix.environment }}
+          path: workloads/workload-a/outputs-${{ matrix.environment }}.json
+          retention-days: 30

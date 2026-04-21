@@ -70,28 +70,33 @@ if ($DeveloperIP) {
 # =============================================================================
 $orgPrefix = $OrganizationName.ToLower() -replace '[^a-z0-9]', ''
 $regionPrefix = $Location.Substring(0, [Math]::Min(4, $Location.Length)).ToLower()
+$instance = "001"
+
+# Pattern: <resource-type>-<workload/app>-<environment>-<region>-<instance>
 
 # Storage account: max 24 chars, alphanumeric only
-$rawStorageName     = "st${orgPrefix}tf${regionPrefix}"
+$rawStorageName     = "stbootstrap${Env}${regionPrefix}${instance}"
 $storageAccountName = ($rawStorageName -replace '[^a-z0-9]', '').Substring(0, [Math]::Min(24, $rawStorageName.Length))
 
 # Key Vault: max 24 chars, alphanumeric + hyphens
-$rawKvName    = "kv-${orgPrefix}-boot"
+$rawKvName    = "kv-boot-${Env}-${regionPrefix}-${instance}"
 $keyVaultName = $rawKvName.Substring(0, [Math]::Min(24, $rawKvName.Length))
 
-$resourceGroupName = "rg-bootstrap-tfstate"
-$platformResourceGroupName = "rg-platform-${Env}-tfstate"
-$spName            = "sp-${orgPrefix}-bootstrap"
-$adminGroupName    = "grp-${orgPrefix}-root-admins"
-$platformSpName    = "sp-${orgPrefix}-platform-${Env}"
-$platformGroupName = "grp-${orgPrefix}-platform-${Env}-admins"
+$resourceGroupName = "rg-bootstrap-${Env}-${Location}-${instance}"
+$platformResourceGroupName = "rg-platform-${Env}-${Location}-${instance}"
 
-# Two storage accounts (max 24)
-$rawPlatSaName = "st${orgPrefix}pl${regionPrefix}${Env}"
+$spName            = "sp-bootstrap-${Env}-${Location}-${instance}"
+$adminGroupName    = "grp-bootstrap-${Env}-${Location}-${instance}"
+
+$platformSpName    = "sp-platform-${Env}-${Location}-${instance}"
+$platformGroupName = "grp-platform-${Env}-${Location}-${instance}"
+
+# Platform Storage account (max 24)
+$rawPlatSaName = "stplatform${Env}${regionPrefix}${instance}"
 $platformStorageAccountName = ($rawPlatSaName -replace '[^a-z0-9]', '').Substring(0, [Math]::Min(24, $rawPlatSaName.Length))
 
-# Two Key Vaults (max 24)
-$rawPlatKvName = "kv-${orgPrefix}-pl-${Env}"
+# Platform Key Vault (max 24)
+$rawPlatKvName = "kv-plat-${Env}-${regionPrefix}-${instance}"
 $platformKeyVaultName = $rawPlatKvName.Substring(0, [Math]::Min(24, $rawPlatKvName.Length))
 
 # =============================================================================
@@ -518,12 +523,12 @@ Write-Host "Waiting 30s for RBAC propagation (Key Vault Administrator role)..."
 Start-Sleep -Seconds 30
 
 $bootSecrets = [ordered]@{
-    "sp-${orgPrefix}-client-id"             = $spAppId
-    "sp-${orgPrefix}-client-secret"         = $spClientSecret
-    "sp-${orgPrefix}-object-id"             = $spObjectId
-    "azure-subscription-id"                 = $SubscriptionId
-    "azure-tenant-id"                       = $TenantId
-    "storage-account-name"                  = $storageAccountName
+    "sp-bootstrap-client-id"             = $spAppId
+    "sp-bootstrap-client-secret"         = $spClientSecret
+    "sp-bootstrap-object-id"             = $spObjectId
+    "azure-subscription-id"              = $SubscriptionId
+    "azure-tenant-id"                    = $TenantId
+    "storage-account-name"               = $storageAccountName
 }
 
 $platSecrets = [ordered]@{
@@ -603,4 +608,42 @@ if ($DeveloperIP) {
     Write-Host "  az storage account network-rule add --account-name $storageAccountName --resource-group $resourceGroupName --ip-address <RUNNER_IP>"
     Write-Host "  az keyvault network-rule add --name $keyVaultName --resource-group $resourceGroupName --ip-address <RUNNER_IP>"
 }
+Write-Host ""
+
+# =============================================================================
+# GENERATE CLEANUP SCRIPT (TEARDOWN)
+# =============================================================================
+$timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$cleanupScriptFile = "teardown-bootstrap-${Env}-${regionPrefix}-${timestamp}.ps1"
+
+$cleanupScriptContent = @"
+#!/usr/bin/env pwsh
+# =============================================================================
+# Cleanup script for bootstrap resources 
+# Generated on: $(Get-Date)
+# Environment:  $Env
+# Location:     $Location
+# =============================================================================
+
+Write-Host "Deleting Service Principals (Apps)..." -ForegroundColor Yellow
+az ad app delete --id $spAppId 2>/dev/null
+az ad app delete --id $platformSpAppId 2>/dev/null
+
+Write-Host "Deleting Azure AD Groups..." -ForegroundColor Yellow
+az ad group delete --group $adminGroupId 2>/dev/null
+az ad group delete --group $platformGroupId 2>/dev/null
+
+Write-Host "Deleting Resource Groups (This will delete Storage Accounts and Key Vaults)..." -ForegroundColor Yellow
+az group delete --name $resourceGroupName --yes --no-wait
+az group delete --name $platformResourceGroupName --yes --no-wait
+
+Write-Host "Purging Soft-Deleted Key Vaults..." -ForegroundColor Yellow
+az keyvault purge --name $keyVaultName --location $Location 2>/dev/null
+az keyvault purge --name $platformKeyVaultName --location $Location 2>/dev/null
+
+Write-Host "Teardown commands initiated." -ForegroundColor Green
+"@
+
+$cleanupScriptContent | Out-File -FilePath "./$cleanupScriptFile" -Encoding utf8
+Write-Host "A teardown cleanup script has been generated: ./$cleanupScriptFile" -ForegroundColor Cyan
 Write-Host ""

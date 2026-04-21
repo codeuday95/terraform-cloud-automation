@@ -1,192 +1,157 @@
-# Read Platform outputs from remote state
-data "terraform_remote_state" "platform" {
+data "terraform_remote_state" "platform_canadacentral" {
   backend = "azurerm"
   config = {
-    resource_group_name  = var.tfstate_resource_group
-    storage_account_name = var.tfstate_storage_account
+    resource_group_name  = "rg-platform-dev-canadacentral-001"
+    storage_account_name = "stplatformdevcana001"
     container_name       = "platform"
-    key                  = "platform.tfstate"
+    key                  = "platform-dev.tfstate"
+    use_azuread_auth     = false
   }
 }
 
-# Create workload-specific storage account for tfstate
-# This gives the workload team full autonomy over their Terraform state
-module "tfstate_storage" {
-  source = "../../modules/tfstate_storage"
-
-  storage_account_name     = "st${var.workload_name}${var.environment}${substr(var.location, 0, 3)}tfst"
-  resource_group_name      = data.terraform_remote_state.platform.outputs.workload_resource_groups[var.workload_name].name
-  location                 = var.location
-  container_name           = "${var.workload_name}-tfstate"
-  account_replication_type = var.environment == "prod" ? "GRS" : "LRS"
-  allowed_ip_ranges        = var.developer_ips
-  enable_public_access     = false
-  versioning_enabled       = true
-  soft_delete_days         = 7
-
-  tags = merge(
-    var.tags,
-    {
-      Environment = var.environment
-      Workload    = var.workload_name
-      Purpose     = "Terraform State Storage"
-    }
-  )
+data "terraform_remote_state" "platform_westus2" {
+  backend = "azurerm"
+  config = {
+    resource_group_name  = "rg-platform-dev-westus2-001"
+    storage_account_name = "stplatformdevwest001"
+    container_name       = "platform"
+    key                  = "platform-dev.tfstate"
+    use_azuread_auth     = false
+  }
 }
 
-# Example: Deploy App Service Plan + Web App for workload-b
-resource "azurerm_service_plan" "workload_b" {
-  name                = "sp-${var.workload_name}-${var.environment}"
-  location            = var.location
-  resource_group_name = data.terraform_remote_state.platform.outputs.workload_resource_groups[var.workload_name].name
-  os_type             = "Linux"
-  sku_name            = var.environment == "prod" ? "P1v2" : "B1"
-
-  tags = merge(
-    var.tags,
-    {
-      Environment = var.environment
-      Workload    = var.workload_name
-    }
-  )
+locals {
+  workload    = "workloadb"
+  environment = "dev"
 }
 
-resource "azurerm_linux_web_app" "workload_b" {
-  name                = "app-${var.workload_name}-${var.environment}"
-  location            = var.location
-  resource_group_name = data.terraform_remote_state.platform.outputs.workload_resource_groups[var.workload_name].name
-  service_plan_id     = azurerm_service_plan.workload_b.id
+# -------------------------------------------------------------------------------------------------
+# 1. Canada Central (Active) Infrastructure
+# -------------------------------------------------------------------------------------------------
+module "appgw_canadacentral" {
+  source = "../../modules/application_gateway"
 
-  site_config {
-    application_stack {
-      docker_image_name   = "nginx:latest"
-      docker_registry_url = "https://index.docker.io"
-    }
+  appgw_name            = "agw-${local.workload}-${local.environment}-canadacentral-001"
+  resource_group_name   = data.terraform_remote_state.platform_canadacentral.outputs.landing_zones["workload-b"].resource_group_name
+  location              = data.terraform_remote_state.platform_canadacentral.outputs.landing_zones["workload-b"].resource_group_location
+  create_resource_group = false
+  domain_name_label     = "agw-${local.workload}-${local.environment}-canadacentral-001-dns"
+
+  subnet_id            = data.terraform_remote_state.platform_canadacentral.outputs.hub_subnets["CoreServices"].id
+  backend_ip_addresses = [module.linux_vm_canadacentral.private_ip]
+  depends_on           = [azurerm_virtual_machine_extension.nginx_canadacentral]
+}
+
+module "linux_vm_canadacentral" {
+  source = "../../modules/linux_vm"
+
+  vm_name              = "vm-${local.workload}-${local.environment}-canadacentral-001"
+  resource_group_name  = data.terraform_remote_state.platform_canadacentral.outputs.landing_zones["workload-b"].resource_group_name
+  location             = data.terraform_remote_state.platform_canadacentral.outputs.landing_zones["workload-b"].resource_group_location
+  subnet_id            = data.terraform_remote_state.platform_canadacentral.outputs.landing_zones["workload-b"].subnet_id
+  
+  admin_username       = "adminuser"
+  admin_ssh_public_key = ""
+  nsg_name             = "nsg-${local.workload}-${local.environment}-canadacentral-001"
+  key_vault_id         = data.terraform_remote_state.platform_canadacentral.outputs.landing_zones["workload-b"].key_vault_id
+}
+
+resource "azurerm_virtual_machine_extension" "nginx_canadacentral" {
+  name                 = "nginx-install-canadacentral"
+  virtual_machine_id   = module.linux_vm_canadacentral.vm_id
+  publisher            = "Microsoft.Azure.Extensions"
+  type                 = "CustomScript"
+  type_handler_version = "2.1"
+  settings             = <<SETTINGS_EOF
+  {
+    "commandToExecute": "apt-get update && apt-get install -y nginx && echo 'Hello from Canada Central - Workload B' > /var/www/html/index.html && systemctl restart nginx"
+  }
+SETTINGS_EOF
+}
+
+# -------------------------------------------------------------------------------------------------
+# 2. West US 2 (Passive/DR) Infrastructure
+# -------------------------------------------------------------------------------------------------
+module "appgw_westus2" {
+  source = "../../modules/application_gateway"
+
+  appgw_name            = "agw-${local.workload}-${local.environment}-westus2-001"
+  resource_group_name   = data.terraform_remote_state.platform_westus2.outputs.landing_zones["workload-b"].resource_group_name
+  location              = data.terraform_remote_state.platform_westus2.outputs.landing_zones["workload-b"].resource_group_location
+  create_resource_group = false
+  domain_name_label     = "agw-${local.workload}-${local.environment}-westus2-001-dns"
+
+  subnet_id            = data.terraform_remote_state.platform_westus2.outputs.hub_subnets["CoreServices"].id
+  backend_ip_addresses = [module.linux_vm_westus2.private_ip]
+  depends_on           = [azurerm_virtual_machine_extension.nginx_westus2]
+}
+
+module "linux_vm_westus2" {
+  source = "../../modules/linux_vm"
+
+  vm_name              = "vm-${local.workload}-${local.environment}-westus2-001"
+  resource_group_name  = data.terraform_remote_state.platform_westus2.outputs.landing_zones["workload-b"].resource_group_name
+  location             = data.terraform_remote_state.platform_westus2.outputs.landing_zones["workload-b"].resource_group_location
+  subnet_id            = data.terraform_remote_state.platform_westus2.outputs.landing_zones["workload-b"].subnet_id
+  
+  admin_username       = "adminuser"
+  admin_ssh_public_key = ""
+  nsg_name             = "nsg-${local.workload}-${local.environment}-westus2-001"
+  key_vault_id         = data.terraform_remote_state.platform_westus2.outputs.landing_zones["workload-b"].key_vault_id
+}
+
+resource "azurerm_virtual_machine_extension" "nginx_westus2" {
+  name                 = "nginx-install-westus2"
+  virtual_machine_id   = module.linux_vm_westus2.vm_id
+  publisher            = "Microsoft.Azure.Extensions"
+  type                 = "CustomScript"
+  type_handler_version = "2.1"
+  settings             = <<SETTINGS_EOF
+  {
+    "commandToExecute": "apt-get update && apt-get install -y nginx && echo 'Hello from West US 2 - Workload B (DR)' > /var/www/html/index.html && systemctl restart nginx"
+  }
+SETTINGS_EOF
+}
+
+# -------------------------------------------------------------------------------------------------
+# 3. Azure Front Door (Global Load Balancing - Active/Passive)
+# -------------------------------------------------------------------------------------------------
+
+# -------------------------------------------------------------------------------------------------
+# 3. Global Routing (Azure Traffic Manager)
+# -------------------------------------------------------------------------------------------------
+resource "azurerm_traffic_manager_profile" "main" {
+  name                   = "atm-${local.workload}-${local.environment}-global-001"
+  resource_group_name    = data.terraform_remote_state.platform_canadacentral.outputs.landing_zones["workload-b"].resource_group_name
+  traffic_routing_method = "Priority"
+
+  dns_config {
+    relative_name = "atm-${local.workload}-${local.environment}-global-001"
+    ttl           = 100
   }
 
-  https_only = true
-
-  tags = merge(
-    var.tags,
-    {
-      Environment = var.environment
-      Workload    = var.workload_name
-    }
-  )
-}
-
-# Example: Container Registry for workload-b
-resource "azurerm_container_registry" "workload_b" {
-  name                = "cr${replace(var.workload_name, "-", "")}${var.environment}"
-  location            = var.location
-  resource_group_name = data.terraform_remote_state.platform.outputs.workload_resource_groups[var.workload_name].name
-  admin_enabled       = false
-  sku                 = var.environment == "prod" ? "Premium" : "Basic"
-
-  tags = merge(
-    var.tags,
-    {
-      Environment = var.environment
-      Workload    = var.workload_name
-    }
-  )
-}
-
-# Example: Cosmos DB for workload-b
-resource "azurerm_cosmosdb_account" "workload_b" {
-  name                = "cosmos-${var.workload_name}-${var.environment}"
-  location            = var.location
-  resource_group_name = data.terraform_remote_state.platform.outputs.workload_resource_groups[var.workload_name].name
-  offer_type          = "Standard"
-  kind                = "GlobalDocumentDB"
-
-  geo_location {
-    location          = var.location
-    failover_priority = 0
+  monitor_config {
+    protocol                     = "HTTP"
+    port                         = 80
+    path                         = "/"
+    interval_in_seconds          = 30
+    timeout_in_seconds           = 9
+    tolerated_number_of_failures = 3
   }
-
-  consistency_policy {
-    consistency_level = "Session"
-  }
-
-  tags = merge(
-    var.tags,
-    {
-      Environment = var.environment
-      Workload    = var.workload_name
-    }
-  )
 }
 
-# Store Cosmos DB connection string in Key Vault
-resource "azurerm_key_vault_secret" "cosmos_connection_string" {
-  name         = "cosmos-connection-string"
-  value        = azurerm_cosmosdb_account.workload_b.primary_sql_connection_string
-  key_vault_id = data.terraform_remote_state.platform.outputs.workload_keyvaults[var.workload_name].id
+resource "azurerm_traffic_manager_azure_endpoint" "primary" {
+  name               = "primary-backend"
+  profile_id         = azurerm_traffic_manager_profile.main.id
+  priority           = 1
+  weight             = 1000
+  target_resource_id = module.appgw_canadacentral.appgw_public_ip_id
 }
 
-# Store Container Registry credentials in Key Vault
-resource "azurerm_key_vault_secret" "acr_login_server" {
-  name         = "acr-login-server"
-  value        = azurerm_container_registry.workload_b.login_server
-  key_vault_id = data.terraform_remote_state.platform.outputs.workload_keyvaults[var.workload_name].id
-}
-
-# =============================================================================
-# AKS Subnet (dedicated subnet for AKS in hub VNet)
-# =============================================================================
-
-resource "azurerm_subnet" "aks" {
-  count = var.enable_aks && var.aks_create_aks_subnet ? 1 : 0
-
-  name                 = "subnet-aks-${var.environment}"
-  resource_group_name  = data.terraform_remote_state.platform.outputs.workload_resource_groups[var.workload_name].name
-  virtual_network_name = "vnet-hub-${var.environment}"
-  address_prefixes     = [var.aks_subnet_address_prefix]
-}
-
-# =============================================================================
-# AKS Cluster Deployment
-# =============================================================================
-
-module "aks" {
-  count = var.enable_aks ? 1 : 0
-
-  source = "../../modules/aks"
-
-  cluster_name        = var.aks_cluster_name
-  location            = var.location
-  resource_group_name = data.terraform_remote_state.platform.outputs.workload_resource_groups[var.workload_name].name
-
-  # Cluster Configuration
-  kubernetes_version = var.aks_kubernetes_version
-  sku_tier           = var.aks_sku_tier
-
-  # Default Node Pool
-  default_node_pool_vm_size      = var.aks_default_node_pool_vm_size
-  default_pool_autoscale_enabled = var.aks_default_pool_autoscale_enabled
-  default_pool_min_count         = var.aks_default_pool_min_count
-  default_pool_max_count         = var.aks_default_pool_max_count
-
-  # Network Configuration
-  network_plugin = var.aks_network_plugin
-  network_policy = "azure"
-  vnet_subnet_id = var.aks_vnet_subnet_id != null ? var.aks_vnet_subnet_id : (var.aks_create_aks_subnet ? azurerm_subnet.aks[0].id : data.terraform_remote_state.platform.outputs.workload_subnets[var.workload_name].id)
-
-  # Monitoring (optional)
-  enable_container_insights = var.aks_enable_container_insights
-
-  tags = merge(
-    var.tags,
-    {
-      Environment = var.environment
-      Workload    = var.workload_name
-      Purpose     = "AKS Cluster"
-    }
-  )
-
-  depends_on = [
-    data.terraform_remote_state.platform,
-    azurerm_subnet.aks
-  ]
+resource "azurerm_traffic_manager_azure_endpoint" "secondary" {
+  name               = "westus2-backend"
+  profile_id         = azurerm_traffic_manager_profile.main.id
+  priority           = 2
+  weight             = 1000
+  target_resource_id = module.appgw_westus2.appgw_public_ip_id
 }

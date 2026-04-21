@@ -19,6 +19,14 @@ variable "vnet_cidr" {
   default     = ""
 }
 
+variable "instance" {
+  description = "Instance indicator"
+  type        = string
+  default     = "001"
+}
+
+
+
 variable "use_hub_subnet" {
   description = "If true, use subnet from hub VNet instead of creating separate VNet"
   type        = bool

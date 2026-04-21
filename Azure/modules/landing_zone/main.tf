@@ -1,6 +1,6 @@
 # Resource Group for the workload
 resource "azurerm_resource_group" "workload" {
-  name     = "rg-${var.workload_name}-${var.environment}"
+  name     = "rg-${var.workload_name}-${var.environment}-${var.location}-${var.instance}"
   location = var.location
 
   tags = merge(
@@ -16,7 +16,7 @@ resource "azurerm_resource_group" "workload" {
 resource "azurerm_virtual_network" "workload" {
   count = var.use_hub_subnet ? 0 : 1
 
-  name                = "vnet-${var.workload_name}-${var.environment}"
+  name                = "vnet-${var.workload_name}-${var.environment}-${var.location}-${var.instance}"
   location            = azurerm_resource_group.workload.location
   resource_group_name = azurerm_resource_group.workload.name
   address_space       = [var.vnet_cidr]
@@ -49,19 +49,19 @@ data "azurerm_subnet" "hub" {
   resource_group_name  = var.hub_resource_group
 }
 
-# Key Vault for the workload
+# Key Vault for Workloads
 resource "azurerm_key_vault" "workload" {
   count = var.enable_key_vault ? 1 : 0
 
-  name                = "kv-${var.workload_name}-${var.environment == "prod" ? "p" : var.environment == "staging" ? "s" : "d"}-${substr(random_id.kv.hex, 0, 4)}"
-  location            = azurerm_resource_group.workload.location
-  resource_group_name = azurerm_resource_group.workload.name
-  tenant_id           = var.tenant_id
-  sku_name            = "standard"
+  name                        = "kv-${substr(var.workload_name, 0, 5)}-${substr(var.environment, 0, 1)}-${substr(var.location, 0, 4)}-${var.instance}-${substr(random_id.kv.hex, 0, 4)}"
+  location                    = azurerm_resource_group.workload.location
+  resource_group_name         = azurerm_resource_group.workload.name
+  tenant_id                   = var.tenant_id
+  sku_name                    = "standard"
 
-  rbac_authorization_enabled = true
-  soft_delete_retention_days = 7
-  purge_protection_enabled  = var.environment == "prod" ? true : false
+  rbac_authorization_enabled   = true
+  soft_delete_retention_days   = 7
+  purge_protection_enabled    = var.environment == "prod" ? true : false
 
   tags = merge(
     var.tags,
@@ -72,13 +72,13 @@ resource "azurerm_key_vault" "workload" {
   )
 }
 
-# Storage Account for the workload
+# Storage Account for workloads
 resource "azurerm_storage_account" "workload" {
   count = var.enable_storage_account ? 1 : 0
 
-  name = "st${replace(var.workload_name, "-", "")}${var.environment == "prod" ? "p" : var.environment == "staging" ? "s" : "d"}${substr(random_id.storage.hex, 0, 4)}"
-  location = azurerm_resource_group.workload.location
-  resource_group_name = azurerm_resource_group.workload.name
+  name                     = "st${replace(substr(var.workload_name, 0, 5), "-", "")}${substr(var.environment, 0, 1)}${replace(substr(var.location, 0, 6), "-", "")}${var.instance}${substr(random_id.storage.hex, 0, 4)}"
+  resource_group_name      = azurerm_resource_group.workload.name
+  location                  = azurerm_resource_group.workload.location
 
   account_tier                   = "Standard"
   account_replication_type       = "LRS"

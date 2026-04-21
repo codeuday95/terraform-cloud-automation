@@ -8,6 +8,12 @@ data "azurerm_storage_account" "bootstrap" {
 # Platform Shared Services
 # =============================================================================
 
+resource "random_string" "random_suffix" {
+  length  = 4
+  special = false
+  upper   = false
+}
+
 # Rely on the Platform Resource Group already created by the bootstrap script
 data "azurerm_resource_group" "platform" {
   name = var.tfstate_resource_group
@@ -15,7 +21,7 @@ data "azurerm_resource_group" "platform" {
 
 # Hub Virtual Network
 resource "azurerm_virtual_network" "hub" {
-  name                = "vnet-hub-${var.environment}"
+  name                = "vnet-platform-hub-${var.environment}-${var.location}-${var.instance}"
   location            = data.azurerm_resource_group.platform.location
   resource_group_name = data.azurerm_resource_group.platform.name
   address_space       = [var.hub_vnet_cidr]
@@ -43,7 +49,7 @@ resource "azurerm_subnet" "hub_subnets" {
 
 # Spoke Virtual Network for Workloads
 resource "azurerm_virtual_network" "spoke" {
-  name                = "vnet-spoke-${var.environment}"
+  name                = "vnet-spoke-${var.environment}-${var.location}-${var.instance}"
   location            = data.azurerm_resource_group.platform.location
   resource_group_name = data.azurerm_resource_group.platform.name
   address_space       = [var.spoke_vnet_cidr]
@@ -89,9 +95,9 @@ resource "azurerm_subnet" "workload_subnets" {
   depends_on = [azurerm_virtual_network.spoke]
 }
 
-# Log Analytics Workspace (shared)
+# Base Log Analytics Workspace
 resource "azurerm_log_analytics_workspace" "platform" {
-  name                = "law-platform-${var.environment}"
+  name                = "law-platform-${var.environment}-${var.location}-${var.instance}"
   location            = data.azurerm_resource_group.platform.location
   resource_group_name = data.azurerm_resource_group.platform.name
   sku                 = "PerGB2018"
@@ -106,13 +112,13 @@ resource "azurerm_log_analytics_workspace" "platform" {
   )
 }
 
-# Shared Key Vault for platform secrets
+# Platform Key Vault
 resource "azurerm_key_vault" "platform" {
-  name                = "kv-platform-${var.environment == "prod" ? "p" : var.environment == "staging" ? "s" : "d"}-${substr(random_id.platform_kv.hex, 0, 4)}"
-  location            = data.azurerm_resource_group.platform.location
-  resource_group_name = data.azurerm_resource_group.platform.name
-  tenant_id           = data.azuread_client_config.current.tenant_id
-  sku_name            = "standard"
+  name                        = "kv-platform-${substr(var.environment, 0, 1)}-${var.instance}-${random_string.random_suffix.result}"
+  location                    = data.azurerm_resource_group.platform.location
+  resource_group_name         = data.azurerm_resource_group.platform.name
+  tenant_id                   = data.azuread_client_config.current.tenant_id
+  sku_name                    = "standard"
 
   rbac_authorization_enabled  = true
   soft_delete_retention_days = 7
@@ -140,20 +146,21 @@ resource "azurerm_role_assignment" "kv_admin_platform" {
 
 # Create landing zone module for each workload
 module "landing_zone" {
-  source = "../modules/landing_zone"
-
+  source   = "../modules/landing_zone"
   for_each = { for workload in var.workloads : workload.name => workload }
 
-  workload_name          = each.value.name
-  environment            = var.environment
-  location               = var.location
-  vnet_cidr              = lookup(each.value, "cidr", "")
-  use_hub_subnet         = true
-  hub_vnet_name          = azurerm_virtual_network.spoke.name
-  hub_resource_group     = data.azurerm_resource_group.platform.name
-  hub_subnet_name        = "subnet-${each.key}-${var.environment}"
-  tenant_id              = data.azuread_client_config.current.tenant_id
-  enable_key_vault       = true
+  workload_name = each.value.name
+  environment   = var.environment
+  location      = var.location
+  instance      = var.instance
+
+  vnet_cidr        = try(each.value.vnet_cidr, "")
+  use_hub_subnet   = true
+  hub_vnet_name    = azurerm_virtual_network.spoke.name
+  hub_resource_group = data.azurerm_resource_group.platform.name
+  hub_subnet_name  = "subnet-${each.key}-${var.environment}"
+  tenant_id        = data.azuread_client_config.current.tenant_id
+  enable_key_vault = true
   enable_storage_account = true
   tags = merge(
     var.tags,
@@ -171,7 +178,7 @@ module "landing_zone" {
 
 # Service Principal for Platform (used by platform Terraform)
 resource "azuread_application" "platform" {
-  display_name = "sp-platform-${var.environment}"
+  display_name = "sp-platform-${var.environment}-${var.location}-${var.instance}"
   owners       = [data.azuread_client_config.current.object_id]
 }
 
@@ -191,7 +198,7 @@ resource "azurerm_role_assignment" "platform_rg_contributor" {
 resource "azuread_application" "workload" {
   for_each = { for workload in var.workloads : workload.name => workload }
 
-  display_name = "sp-${each.key}-${var.environment}"
+  display_name = "sp-${each.key}-${var.environment}-${var.location}-${var.instance}"
   owners       = [data.azuread_client_config.current.object_id]
 }
 
@@ -377,28 +384,6 @@ resource "azurerm_role_assignment" "kv_secrets_user_platform" {
 }
 
 # =============================================================================
-# Azure Policy
-# =============================================================================
-
-# Azure Policy: Allowed Locations
-resource "azurerm_policy_definition" "allowed_locations" {
-  name         = "AllowedLocations-${var.environment}"
-  display_name = "Allowed Locations - ${var.environment}"
-  policy_type  = "Custom"
-  mode         = "All"
-
-  policy_rule = jsonencode({
-    if = {
-      field = "location"
-      notIn = var.allowed_regions
-    }
-    then = {
-      effect = "Deny"
-    }
-  })
-}
-
-# =============================================================================
 # Random IDs
 # =============================================================================
 
@@ -412,19 +397,19 @@ resource "random_id" "platform_kv" {
 
 # Platform RBAC Groups
 resource "azuread_group" "platform_admins" {
-  display_name     = var.rbac_groups.platform.admins
+  display_name     = "grp-platform-${var.environment}-${var.location}-${var.instance}-admins"
   security_enabled = true
   description      = "Platform administrators with Owner access to platform resources"
 }
 
 resource "azuread_group" "platform_users" {
-  display_name     = var.rbac_groups.platform.users
+  display_name     = "grp-platform-${var.environment}-${var.location}-${var.instance}-users"
   security_enabled = true
   description      = "Platform users with Contributor access to platform resources"
 }
 
 resource "azuread_group" "platform_readers" {
-  display_name     = var.rbac_groups.platform.readers
+  display_name     = "grp-platform-${var.environment}-${var.location}-${var.instance}-readers"
   security_enabled = true
   description      = "Platform readers with Reader access to platform resources"
 }
@@ -452,7 +437,7 @@ resource "azurerm_role_assignment" "platform_readers" {
 resource "azuread_group" "workload_admins" {
   for_each = var.rbac_groups.workloads
 
-  display_name     = each.value.admins
+  display_name     = "grp-${each.key}-${var.environment}-${var.location}-${var.instance}-admins"
   security_enabled = true
   description      = "Admins for ${each.key} with Owner access"
 }
@@ -460,7 +445,7 @@ resource "azuread_group" "workload_admins" {
 resource "azuread_group" "workload_users" {
   for_each = var.rbac_groups.workloads
 
-  display_name     = each.value.users
+  display_name     = "grp-${each.key}-${var.environment}-${var.location}-${var.instance}-users"
   security_enabled = true
   description      = "Users for ${each.key} with Contributor access"
 }
@@ -468,7 +453,7 @@ resource "azuread_group" "workload_users" {
 resource "azuread_group" "workload_readers" {
   for_each = var.rbac_groups.workloads
 
-  display_name     = each.value.readers
+  display_name     = "grp-${each.key}-${var.environment}-${var.location}-${var.instance}-readers"
   security_enabled = true
   description      = "Readers for ${each.key} with Reader access"
 }

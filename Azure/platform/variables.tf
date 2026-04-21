@@ -3,6 +3,12 @@ variable "tenant_id" { type = string }
 variable "client_id" { type = string }
 variable "environment" { type = string }
 variable "location" { type = string }
+
+variable "instance" { 
+  type = string 
+  default = "001"
+}
+
 variable "organization_name" { type = string }
 variable "tfstate_storage_account" { type = string }
 variable "tfstate_resource_group" { type = string }

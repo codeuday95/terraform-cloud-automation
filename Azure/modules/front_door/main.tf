@@ -1,125 +1,76 @@
-# Azure Front Door (Standard/Premium)
+data "azurerm_resource_group" "rg" {
+  name = var.resource_group_name
+}
 
-# Profile for Front Door
-resource "azurerm_frontdoor" "main" {
+resource "azurerm_cdn_frontdoor_profile" "main" {
   name                = var.frontdoor_name
-  resource_group_name = var.resource_group_name
-  location            = "global"  # Front Door is global
+  resource_group_name = data.azurerm_resource_group.rg.name
+  sku_name            = "Standard_AzureFrontDoor"
+}
 
-  routing_rule {
-    name                          = "default-routing-rule"
-    forwarding_protocol           = "MatchRequest"
-    patterns_to_match             = ["/*"]
-    frontend_endpoints            = ["frontend-endpoint"]
-    enabled                       = true
-    backend_pool_name             = "default-backend-pool"
-  }
+resource "azurerm_cdn_frontdoor_endpoint" "main" {
+  name                     = var.frontdoor_name
+  cdn_frontdoor_profile_id = azurerm_cdn_frontdoor_profile.main.id
+}
 
-  frontend_endpoint {
-    name                              = "frontend-endpoint"
-    host_name                         = "${var.frontdoor_name}.azurefd.net"
-    session_affinity_enabled          = var.session_affinity_enabled
-    session_affinity_ttl_seconds      = var.session_affinity_ttl
-    web_application_firewall_policy_id = var.enable_waf ? azurerm_frontdoor_firewall_policy.waf[0].id : null
-  }
-
-  backend_pool {
-    name = "default-backend-pool"
-    backend {
-      name    = "primary-backend"
-      address = var.primary_backend_address
-      enabled = true
-    }
-    dynamic "backend" {
-      for_each = var.secondary_backends
-      content {
-        name    = backend.value.name
-        address = backend.value.address
-        enabled = true
-      }
-    }
-    load_balancing_name = "default-load-balancing"
-    health_probe_name   = "default-health-probe"
-  }
-
+resource "azurerm_cdn_frontdoor_origin_group" "main" {
+  name                     = "default-origin-group"
+  cdn_frontdoor_profile_id = azurerm_cdn_frontdoor_profile.main.id
+  session_affinity_enabled = false
   load_balancing {
-    name                        = "default-load-balancing"
-    successful_samples_required = 2
+    additional_latency_in_milliseconds = 50
+    sample_size                        = 4
+    successful_samples_required        = 3
   }
-
   health_probe {
-    name                = "default-health-probe"
     interval_in_seconds = var.health_probe_interval
     path                = var.health_probe_path
-    protocol            = var.health_probe_protocol
-  }
-
-  tags = var.tags
-}
-
-# WAF Policy for Front Door
-resource "azurerm_frontdoor_firewall_policy" "waf" {
-  count               = var.enable_waf ? 1 : 0
-  name                = "${var.frontdoor_name}-waf-policy"
-  resource_group_name = var.resource_group_name
-  location            = "global"  # Front Door WAF is global
-
-  enabled                         = true
-  mode                            = var.waf_mode  # Prevention or Detection
-
-  # OWASP Rule Set
-  custom_rule {
-    name           = "block-ip-rule"
-    enabled        = true
-    priority       = 1
-    rule_type      = "MatchRule"
-    action         = "Block"
-    match_condition {
-      match_variable    = "RemoteAddr"
-      operator          = "IPMatch"
-      negation_condition = false
-      match_values      = var.waf_blocked_ips
-      transforms        = []
-    }
-  }
-
-  # OWASP 3.2 configuration
-  policy_settings {
-    enabled                     = true
-    mode                        = var.waf_mode
-    request_body_check          = true
-    max_request_body_size_in_kb = 32
-  }
-
-  tags = var.tags
-}
-
-# Custom Domain Configuration (optional, requires certificate)
-resource "azurerm_frontdoor_custom_domain" "main" {
-  count = var.enable_custom_domain ? 1 : 0
-
-  name                     = var.custom_domain_name
-  frontdoor_id             = azurerm_frontdoor.main.id
-  host_name                = var.custom_domain_hostname
-  frontend_endpoint_name   = "frontend-endpoint"
-
-  https {
-    certificate_type    = var.certificate_type  # FrontDoor or Customer
-    secret              = var.certificate_secret_id
-    protocol_type       = var.tls_protocol_type
-    minimum_tls_version = var.minimum_tls_version
+    protocol            = var.health_probe_protocol == "Https" ? "Https" : "Http"
+    request_type        = "HEAD"
   }
 }
 
-# Route for traffic routing
-resource "azurerm_frontdoor_route" "main" {
-  name                            = "${var.frontdoor_name}-route"
-  frontdoor_id                    = azurerm_frontdoor.main.id
-  frontend_endpoint_name          = "frontend-endpoint"
-  patterns_to_match               = var.route_patterns_to_match
-  protocols_enabled               = var.route_protocols_enabled
-  cache_enabled                   = var.route_cache_enabled
-  forwarding_protocol             = var.route_forwarding_protocol
-  backend_pool_name               = "default-backend-pool"
-  enabled                         = true
+resource "azurerm_cdn_frontdoor_origin" "primary" {
+  name                           = "primary-backend"
+  cdn_frontdoor_origin_group_id  = azurerm_cdn_frontdoor_origin_group.main.id
+  enabled                        = true
+  certificate_name_check_enabled = false
+  host_name                      = var.primary_backend_address
+  http_port                      = 80
+  https_port                     = 443
+  origin_host_header             = var.primary_backend_address
+  priority                       = 1
+  weight                         = 1000
+}
+
+resource "azurerm_cdn_frontdoor_origin" "secondary" {
+  for_each = { for idx, backend in var.secondary_backends : backend.name => backend }
+  name                           = each.key
+  cdn_frontdoor_origin_group_id  = azurerm_cdn_frontdoor_origin_group.main.id
+  enabled                        = true
+  certificate_name_check_enabled = false
+  host_name                      = each.value.address
+  http_port                      = 80
+  https_port                     = 443
+  origin_host_header             = each.value.address
+  priority                       = 2
+  weight                         = 1000
+}
+
+resource "azurerm_cdn_frontdoor_route" "main" {
+  name                          = "default-route"
+  cdn_frontdoor_endpoint_id     = azurerm_cdn_frontdoor_endpoint.main.id
+  cdn_frontdoor_origin_group_id = azurerm_cdn_frontdoor_origin_group.main.id
+  cdn_frontdoor_origin_ids      = concat([azurerm_cdn_frontdoor_origin.primary.id], [for o in azurerm_cdn_frontdoor_origin.secondary : o.id])
+  supported_protocols           = ["Http", "Https"]
+  patterns_to_match             = ["/*"]
+  forwarding_protocol           = "MatchRequest"
+  https_redirect_enabled        = true
+}
+
+resource "azurerm_cdn_frontdoor_firewall_policy" "waf" {
+  name                = replace(var.frontdoor_name, "-", "")
+  resource_group_name = data.azurerm_resource_group.rg.name
+  sku_name            = "Standard_AzureFrontDoor"
+  mode                = "Prevention"
 }

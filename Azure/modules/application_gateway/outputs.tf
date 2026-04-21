@@ -23,7 +23,3 @@ output "waf_policy_id" {
   value       = try(azurerm_web_application_firewall_policy.waf[0].id, null)
 }
 
-output "appgw_private_ip" {
-  description = "Application Gateway Private IP"
-  value       = azurerm_application_gateway.main.private_ip_address
-}

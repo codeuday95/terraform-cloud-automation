@@ -37,9 +37,9 @@ Below is an ASCII diagram showing how the current deployment maps to this hierar
 |  - Platform SPN                    |       |      | Resource Group: Workload-B  |
 +------------------------------------+       |      |                             |
                                              +----> |  [ Subnet-workload-b ]      |
-                                                    |   + VM / App GW             |
-                                                    |   + Identity                |
-                                                    |   + Key Vault & Storage     |
+                                                    |   +                         |
+                                                    |   +                         |
+                                                    |   +                         |
                                                     +-----------------------------+
 ```
 

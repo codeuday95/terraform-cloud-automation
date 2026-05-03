@@ -48,6 +48,12 @@ variable "health_probe_protocol" {
   default     = "Http"
 }
 
+variable "health_probe_method" {
+  description = "Health probe request type (GET or HEAD)"
+  type        = string
+  default     = "GET"
+}
+
 # WAF Configuration
 variable "enable_waf" {
   description = "Enable Web Application Firewall"
@@ -146,6 +152,12 @@ variable "route_forwarding_protocol" {
   description = "Forwarding protocol (Http, Https, or MatchRequest)"
   type        = string
   default     = "MatchRequest"
+}
+
+variable "origin_host_header" {
+  description = "Origin host header (optional, defaults to backend address if null)"
+  type        = string
+  default     = null
 }
 
 variable "tags" {

@@ -26,7 +26,7 @@ resource "azurerm_cdn_frontdoor_origin_group" "main" {
     interval_in_seconds = var.health_probe_interval
     path                = var.health_probe_path
     protocol            = var.health_probe_protocol == "Https" ? "Https" : "Http"
-    request_type        = "HEAD"
+    request_type        = var.health_probe_method
   }
 }
 
@@ -37,8 +37,8 @@ resource "azurerm_cdn_frontdoor_origin" "primary" {
   certificate_name_check_enabled = false
   host_name                      = var.primary_backend_address
   http_port                      = 80
-  https_port                     = 443
-  origin_host_header             = var.primary_backend_address
+  https_port                     = 80
+  origin_host_header             = var.origin_host_header != null ? var.origin_host_header : var.primary_backend_address
   priority                       = 1
   weight                         = 1000
 }
@@ -51,8 +51,8 @@ resource "azurerm_cdn_frontdoor_origin" "secondary" {
   certificate_name_check_enabled = false
   host_name                      = each.value.address
   http_port                      = 80
-  https_port                     = 443
-  origin_host_header             = each.value.address
+  https_port                     = 80
+  origin_host_header             = var.origin_host_header != null ? var.origin_host_header : each.value.address
   priority                       = 2
   weight                         = 1000
 }
@@ -64,7 +64,7 @@ resource "azurerm_cdn_frontdoor_route" "main" {
   cdn_frontdoor_origin_ids      = concat([azurerm_cdn_frontdoor_origin.primary.id], [for o in azurerm_cdn_frontdoor_origin.secondary : o.id])
   supported_protocols           = ["Http", "Https"]
   patterns_to_match             = ["/*"]
-  forwarding_protocol           = "MatchRequest"
+  forwarding_protocol           = var.route_forwarding_protocol
   https_redirect_enabled        = true
 }
 

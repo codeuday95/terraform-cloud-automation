@@ -64,7 +64,7 @@ resource "azurerm_network_security_group" "bastion" {
     protocol                   = "Tcp"
     source_port_range          = "*"
     destination_port_ranges    = ["22", "3389"]
-    source_address_prefix      = "AzureBastionSubnet"
+    source_address_prefix      = "GatewayManager"
     destination_address_prefix = "*"
   }
 

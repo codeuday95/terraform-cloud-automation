@@ -1,4 +1,4 @@
-#!/usr/bin/env pwsh
+﻿#!/usr/bin/env pwsh
 param(
     [Parameter(Mandatory=$true)][string]$SubscriptionId,
     [Parameter(Mandatory=$true)][string]$TenantId,
@@ -135,7 +135,7 @@ Write-Host "OK"
 # STEP 2: Create RBAC admin group
 # =============================================================================
 Write-Host "Step 2: Creating RBAC admin group" -ForegroundColor Yellow
-$existing = az ad group list --display-name $adminGroupName --query "[0].id" -o tsv 2>/dev/null
+$existing = az ad group list --display-name $adminGroupName --query "[0].id" -o tsv 2>$null
 if ($existing) {
     Write-Host "Already exists: $existing"
     $adminGroupId = $existing
@@ -143,7 +143,7 @@ if ($existing) {
     $newGroup = az ad group create `
         --display-name $adminGroupName `
         --mail-nickname ($adminGroupName -replace '-', '') `
-        --description "Root admin group for $OrganizationName — subscription Contributor + UAA + KV Administrator" | ConvertFrom-Json
+        --description "Root admin group for $OrganizationName - subscription Contributor + UAA + KV Administrator" | ConvertFrom-Json
     $adminGroupId = $newGroup.id
     Write-Host "Created: $adminGroupId"
 }
@@ -173,7 +173,7 @@ if ($platformRgExists -eq "true") {
 # STEP 4: Create storage account
 # =============================================================================
 Write-Host "Step 4: Creating Bootstrap storage account" -ForegroundColor Yellow
-$saExists = az storage account show --name $storageAccountName --resource-group $resourceGroupName 2>/dev/null
+$saExists = az storage account show --name $storageAccountName --resource-group $resourceGroupName 2>$null
 if ($saExists) {
     Write-Host "Already exists"
 } else {
@@ -193,7 +193,7 @@ if ($saExists) {
         Write-Host "  Firewall: restricting public access, whitelisting $DeveloperIP"
     }
 
-    az @saCmd | Out-Null
+    az $saCmd | Out-Null
 
     if ($DeveloperIP) {
         az storage account network-rule add `
@@ -207,7 +207,7 @@ if ($saExists) {
 }
 
 Write-Host "Step 4.1: Creating Platform storage account" -ForegroundColor Yellow
-$platformSaExists = az storage account show --name $platformStorageAccountName --resource-group $platformResourceGroupName 2>/dev/null
+$platformSaExists = az storage account show --name $platformStorageAccountName --resource-group $platformResourceGroupName 2>$null
 if ($platformSaExists) {
     Write-Host "Platform SA already exists"
 } else {
@@ -227,7 +227,7 @@ if ($platformSaExists) {
         Write-Host "  Firewall: restricting public access, whitelisting $DeveloperIP"
     }
 
-    az @platSaCmd | Out-Null
+    az $platSaCmd | Out-Null
 
     if ($DeveloperIP) {
         az storage account network-rule add `
@@ -241,10 +241,10 @@ if ($platformSaExists) {
 }
 
 # =============================================================================
-# STEP 5: Create Key Vault (RBAC mode — required for role assignments to work)
+# STEP 5: Create Key Vault (RBAC mode â€” required for role assignments to work)
 # =============================================================================
 Write-Host "Step 5: Creating Bootstrap Key Vault" -ForegroundColor Yellow
-$kvExists = az keyvault show --name $keyVaultName --resource-group $resourceGroupName 2>/dev/null
+$kvExists = az keyvault show --name $keyVaultName --resource-group $resourceGroupName 2>$null
 if ($kvExists) {
     Write-Host "Already exists"
 } else {
@@ -265,12 +265,12 @@ if ($kvExists) {
         Write-Host "  Firewall: restricting public access, whitelisting $DeveloperIP"
     }
 
-    az @kvCmd | Out-Null
+    az $kvCmd | Out-Null
     Write-Host "Bootstrap KV created"
 }
 
 Write-Host "Step 5.1: Creating Platform Key Vault" -ForegroundColor Yellow
-$platKvExists = az keyvault show --name $platformKeyVaultName --resource-group $platformResourceGroupName 2>/dev/null
+$platKvExists = az keyvault show --name $platformKeyVaultName --resource-group $platformResourceGroupName 2>$null
 if ($platKvExists) {
     Write-Host "Platform KV already exists"
 } else {
@@ -291,7 +291,7 @@ if ($platKvExists) {
         Write-Host "  Firewall: restricting public access, whitelisting $DeveloperIP"
     }
 
-    az @platKvCmd | Out-Null
+    az $platKvCmd | Out-Null
     Write-Host "Platform KV created"
 }
 
@@ -301,11 +301,11 @@ if ($platKvExists) {
 Write-Host "Step 6: Creating storage containers" -ForegroundColor Yellow
 
 # Bootstrap Container
-$bootContainerExists = az storage container exists --name "bootstrap" --account-name $storageAccountName --auth-mode login 2>/dev/null | ConvertFrom-Json
+$bootContainerExists = az storage container exists --name "bootstrap" --account-name $storageAccountName --auth-mode login 2>$null | ConvertFrom-Json
 if ($bootContainerExists.exists) {
     Write-Host "  - bootstrap: already exists in Boot SA"
 } else {
-    az storage container create --name "bootstrap" --account-name $storageAccountName --auth-mode login 2>/dev/null | Out-Null
+    az storage container create --name "bootstrap" --account-name $storageAccountName --auth-mode login 2>$null | Out-Null
     Write-Host "  - bootstrap: created in Boot SA"
 }
 
@@ -315,14 +315,14 @@ foreach ($container in $platContainers) {
     $containerExists = az storage container exists `
         --name $container `
         --account-name $platformStorageAccountName `
-        --auth-mode login 2>/dev/null | ConvertFrom-Json
+        --auth-mode login 2>$null | ConvertFrom-Json
     if ($containerExists.exists) {
         Write-Host "  - ${container}: already exists in Platform SA"
     } else {
         az storage container create `
             --name $container `
             --account-name $platformStorageAccountName `
-            --auth-mode login 2>/dev/null | Out-Null
+            --auth-mode login 2>$null | Out-Null
         Write-Host "  - ${container}: created in Platform SA"
     }
 }
@@ -331,11 +331,11 @@ foreach ($container in $platContainers) {
 # STEP 7: Create service principal + generate credential
 # =============================================================================
 Write-Host "Step 7: Creating service principal" -ForegroundColor Yellow
-$spExists    = az ad sp list --display-name $spName --query "[0].id" -o tsv 2>/dev/null
+$spExists    = az ad sp list --display-name $spName --query "[0].id" -o tsv 2>$null
 $spClientSecret = $null
 
 if ($spExists) {
-    Write-Host "SP already exists — rolling a new credential"
+    Write-Host "SP already exists - rolling a new credential"
     $spObjectId = $spExists
     $spAppId    = az ad sp show --id $spObjectId --query appId -o tsv
 
@@ -366,15 +366,15 @@ if ($spExists) {
 # =============================================================================
 Write-Host "Step 8: Adding current user as SP owner" -ForegroundColor Yellow
 $currentUser = az ad signed-in-user show --query id -o tsv
-az ad app owner add --id $spAppId --owner-object-id $currentUser 2>/dev/null | Out-Null
+az ad app owner add --id $spAppId --owner-object-id $currentUser 2>$null | Out-Null
 Write-Host "Current user set as app owner"
 
 # =============================================================================
 # STEP 9: Add members to admin group
 # =============================================================================
 Write-Host "Step 9: Adding members to admin group" -ForegroundColor Yellow
-az ad group member add --group $adminGroupId --member-id $currentUser 2>/dev/null | Out-Null
-az ad group member add --group $adminGroupId --member-id $spObjectId 2>/dev/null | Out-Null
+az ad group member add --group $adminGroupId --member-id $currentUser 2>$null | Out-Null
+az ad group member add --group $adminGroupId --member-id $spObjectId 2>$null | Out-Null
 Write-Host "Added: current user + service principal"
 
 # =============================================================================
@@ -386,7 +386,7 @@ az role assignment create `
     --role "Key Vault Administrator" `
     --assignee-object-id $adminGroupId `
     --scope $kvId `
-    --assignee-principal-type Group 2>/dev/null | Out-Null
+    --assignee-principal-type Group 2>$null | Out-Null
 Write-Host "Key Vault Administrator assigned to $adminGroupName for Bootstrap KV"
 
 Write-Host "Step 10.1: Assigning Key Vault RBAC to Platform" -ForegroundColor Yellow
@@ -395,14 +395,8 @@ az role assignment create `
     --role "Key Vault Administrator" `
     --assignee-object-id $adminGroupId `
     --scope $platKvId `
-    --assignee-principal-type Group 2>/dev/null | Out-Null
-# Giving platform group access to their own KV
-az role assignment create `
-    --role "Key Vault Administrator" `
-    --assignee-object-id ($platformExisting ? $platformExisting : $platformGroupId) `
-    --scope $platKvId `
-    --assignee-principal-type Group 2>/dev/null | Out-Null
-Write-Host "Key Vault Administrator assigned to Admins & Platform Group for Platform KV"
+    --assignee-principal-type Group 2>$null | Out-Null
+Write-Host "Key Vault Administrator assigned to Admin Group for Platform KV"
 
 # =============================================================================
 # STEP 11: Assign Contributor and UAA on subscription (formerly Owner)
@@ -414,7 +408,7 @@ foreach ($role in $adminRoles) {
         --role $role `
         --assignee-object-id $adminGroupId `
         --scope "/subscriptions/$SubscriptionId" `
-        --assignee-principal-type Group 2>/dev/null | Out-Null
+        --assignee-principal-type Group 2>$null | Out-Null
     Write-Host "$role assigned on subscription to admin group"
 }
 
@@ -422,7 +416,7 @@ foreach ($role in $adminRoles) {
 # STEP 11.1: Create Platform RBAC Group
 # =============================================================================
 Write-Host "Step 11.1: Creating Platform RBAC Group" -ForegroundColor Yellow
-$platformExisting = az ad group list --display-name $platformGroupName --query "[0].id" -o tsv 2>/dev/null
+$platformExisting = az ad group list --display-name $platformGroupName --query "[0].id" -o tsv 2>$null
 if ($platformExisting) {
     Write-Host "Already exists: $platformExisting"
     $platformGroupId = $platformExisting
@@ -435,15 +429,24 @@ if ($platformExisting) {
     Write-Host "Created: $platformGroupId"
 }
 
+Write-Host "Step 11.1b: Assigning Key Vault RBAC to Platform Group for Platform KV" -ForegroundColor Yellow
+$platKvId = "/subscriptions/$SubscriptionId/resourceGroups/$platformResourceGroupName/providers/Microsoft.KeyVault/vaults/$platformKeyVaultName"
+az role assignment create `
+    --role "Key Vault Administrator" `
+    --assignee-object-id $platformGroupId `
+    --scope $platKvId `
+    --assignee-principal-type Group 2>$null | Out-Null
+Write-Host "Key Vault Administrator assigned to Platform Group for Platform KV"
+
 # =============================================================================
 # STEP 11.2: Create Platform Service Principal
 # =============================================================================
 Write-Host "Step 11.2: Creating Platform Service Principal" -ForegroundColor Yellow
-$platformSpExists = az ad sp list --display-name $platformSpName --query "[0].id" -o tsv 2>/dev/null
+$platformSpExists = az ad sp list --display-name $platformSpName --query "[0].id" -o tsv 2>$null
 $platformSpClientSecret = $null
 
 if ($platformSpExists) {
-    Write-Host "Platform SP exists — rolling a new credential"
+    Write-Host "Platform SP exists - rolling a new credential"
     $platformSpObjectId = $platformSpExists
     $platformSpAppId    = az ad sp show --id $platformSpObjectId --query appId -o tsv
 
@@ -468,9 +471,9 @@ if ($platformSpExists) {
 
     Write-Host "Created Platform SP: $platformSpObjectId AppId: $platformSpAppId"
 }
-az ad app owner add --id $platformSpAppId --owner-object-id $currentUser 2>/dev/null | Out-Null
+az ad app owner add --id $platformSpAppId --owner-object-id $currentUser 2>$null | Out-Null
 
-az ad group member add --group $platformGroupId --member-id $platformSpObjectId 2>/dev/null | Out-Null
+az ad group member add --group $platformGroupId --member-id $platformSpObjectId 2>$null | Out-Null
 Write-Host "Platform SP added to Platform group"
 
 # =============================================================================
@@ -482,9 +485,9 @@ $subscriptionScope = "/subscriptions/$SubscriptionId"
 foreach ($role in $adminRoles) {
     az role assignment create `
         --role $role `
-        --assignee-object-id ($platformExisting ? $platformExisting : $platformGroupId) `
+        --assignee-object-id $(if ($platformExisting) { $platformExisting } else { $platformGroupId }) `
         --scope $subscriptionScope `
-        --assignee-principal-type Group 2>/dev/null | Out-Null
+        --assignee-principal-type Group 2>$null | Out-Null
     Write-Host "$role assigned to Platform group on Subscription context"
 }
 
@@ -498,7 +501,7 @@ az role assignment create `
     --role "Resource Policy Contributor" `
     --assignee-object-id $platformGroupId `
     --scope "/subscriptions/$SubscriptionId" `
-    --assignee-principal-type Group 2>/dev/null | Out-Null
+    --assignee-principal-type Group 2>$null | Out-Null
 Write-Host "Resource Policy Contributor assigned to Platform Group on Subscription level"
 
 # 2. Graph API permissions for App & Group Creation
@@ -508,11 +511,11 @@ Write-Host "Resource Policy Contributor assigned to Platform Group on Subscripti
 az ad app permission add `
     --id $platformSpAppId `
     --api 00000003-0000-0000-c000-000000000000 `
-    --api-permissions 1bfefb4e-e0b5-418b-a88f-73c46d2cc8e9=Role 62a82d76-70ea-41e2-9197-370581804d09=Role 2>/dev/null | Out-Null
+    --api-permissions 1bfefb4e-e0b5-418b-a88f-73c46d2cc8e9=Role 62a82d76-70ea-41e2-9197-370581804d09=Role 2>$null | Out-Null
 
 Write-Host "Waiting 10s for API permission propagation..."
 Start-Sleep -Seconds 10
-az ad app permission admin-consent --id $platformSpAppId 2>/dev/null | Out-Null
+az ad app permission admin-consent --id $platformSpAppId 2>$null | Out-Null
 Write-Host "Admin consent granted for Graph API (App and Group creation)"
 
 # =============================================================================
@@ -543,7 +546,7 @@ $platSecrets = [ordered]@{
 # Store Bootstrap Secrets
 foreach ($secretName in $bootSecrets.Keys) {
     $secretValue  = $bootSecrets[$secretName]
-    $secretExists = az keyvault secret show --vault-name $keyVaultName --name $secretName 2>/dev/null
+    $secretExists = az keyvault secret show --vault-name $keyVaultName --name $secretName 2>$null
     if ($secretExists) {
         az keyvault secret set --vault-name $keyVaultName --name $secretName --value $secretValue | Out-Null
         Write-Host "  - [Bootstrap KV] ${secretName}: updated"
@@ -556,7 +559,7 @@ foreach ($secretName in $bootSecrets.Keys) {
 # Store Platform Secrets
 foreach ($secretName in $platSecrets.Keys) {
     $secretValue  = $platSecrets[$secretName]
-    $secretExists = az keyvault secret show --vault-name $platformKeyVaultName --name $secretName 2>/dev/null
+    $secretExists = az keyvault secret show --vault-name $platformKeyVaultName --name $secretName 2>$null
     if ($secretExists) {
         az keyvault secret set --vault-name $platformKeyVaultName --name $secretName --value $secretValue | Out-Null
         Write-Host "  - [Platform KV] ${secretName}: updated"
@@ -626,20 +629,20 @@ $cleanupScriptContent = @"
 # =============================================================================
 
 Write-Host "Deleting Service Principals (Apps)..." -ForegroundColor Yellow
-az ad app delete --id $spAppId 2>/dev/null
-az ad app delete --id $platformSpAppId 2>/dev/null
+az ad app delete --id $spAppId 2>$null
+az ad app delete --id $platformSpAppId 2>$null
 
 Write-Host "Deleting Azure AD Groups..." -ForegroundColor Yellow
-az ad group delete --group $adminGroupId 2>/dev/null
-az ad group delete --group $platformGroupId 2>/dev/null
+az ad group delete --group $adminGroupId 2>$null
+az ad group delete --group $platformGroupId 2>$null
 
 Write-Host "Deleting Resource Groups (This will delete Storage Accounts and Key Vaults)..." -ForegroundColor Yellow
 az group delete --name $resourceGroupName --yes --no-wait
 az group delete --name $platformResourceGroupName --yes --no-wait
 
 Write-Host "Purging Soft-Deleted Key Vaults..." -ForegroundColor Yellow
-az keyvault purge --name $keyVaultName --location $Location 2>/dev/null
-az keyvault purge --name $platformKeyVaultName --location $Location 2>/dev/null
+az keyvault purge --name $keyVaultName --location $Location 2>$null
+az keyvault purge --name $platformKeyVaultName --location $Location 2>$null
 
 Write-Host "Teardown commands initiated." -ForegroundColor Green
 "@

@@ -23,3 +23,7 @@ output "waf_policy_id" {
   value       = try(azurerm_web_application_firewall_policy.waf[0].id, null)
 }
 
+output "backend_address_pool_id" {
+  description = "The ID of the Backend Address Pool"
+  value       = tolist(azurerm_application_gateway.main.backend_address_pool)[0].id
+}

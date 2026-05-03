@@ -22,3 +22,9 @@ output "nic_id" {
   description = "Network Interface ID"
   value       = azurerm_network_interface.linux_vm.id
 }
+
+output "os_disk_id" {
+  description = "OS Disk ID"
+  value       = "${data.azurerm_resource_group.rg.id}/providers/Microsoft.Compute/disks/${var.vm_name}-osdisk"
+}
+

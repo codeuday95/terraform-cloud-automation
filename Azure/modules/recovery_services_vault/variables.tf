@@ -103,3 +103,9 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "identity_type" {
+  description = "Type of Managed Identity"
+  type        = string
+  default     = "SystemAssigned"
+}

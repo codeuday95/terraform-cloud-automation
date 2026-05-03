@@ -27,3 +27,8 @@ output "backup_resource_group_name" {
   description = "Backup resource group name (if created)"
   value       = try(azurerm_resource_group.backup_rg[0].name, null)
 }
+
+output "identity_principal_id" {
+  description = "The Principal ID of the System Assigned Identity for the Recovery Services Vault"
+  value       = azurerm_recovery_services_vault.main.identity[0].principal_id
+}

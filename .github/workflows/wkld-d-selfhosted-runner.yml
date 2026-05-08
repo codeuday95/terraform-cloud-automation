@@ -82,9 +82,11 @@ jobs:
     - name: Create VM
       if: inputs.action == 'create'
       run: |
-        PUBLIC_IP_ARG="--public-ip-address \"\""
+        declare -a ARGS
         if [ "${{ inputs.enable_public_ip }}" = "true" ]; then
-          PUBLIC_IP_ARG="--public-ip-sku Standard"
+          ARGS+=(--public-ip-sku Standard)
+        else
+          ARGS+=(--public-ip-address "")
         fi
 
         az vm create \
@@ -97,7 +99,7 @@ jobs:
           --admin-password "${{ secrets.VM_ADMIN_PASSWORD }}" \
           --authentication-type password \
           --assign-identity \
-          $PUBLIC_IP_ARG
+          "${ARGS[@]}"
 
     - name: Assign Roles to VM Identity
       if: inputs.action == 'create'
@@ -107,6 +109,9 @@ jobs:
           --name ${{ env.VM_NAME }} \
           --query principalId \
           -o tsv)
+
+        echo "Waiting 15 seconds for AAD propagation..."
+        sleep 15
 
         az role assignment create \
           --assignee $PRINCIPAL_ID \

@@ -1,0 +1,165 @@
+name: Azure Self Hosted Runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Action to perform (create or destroy)"
+        required: true
+        default: "create"
+        type: choice
+        options:
+          - create
+          - destroy
+      github_repo_url:
+        description: "GitHub repository or organization URL (e.g., https://github.com/my-org/my-repo)"
+        required: true
+        type: string
+      enable_public_ip:
+        description: "Enable Public IP (Not recommended. Runner uses Azure RunCommand to install securely without SSH)"
+        required: true
+        default: false
+        type: boolean
+
+env:
+  RG_NAME: rg-github-runner-aks
+  LOCATION: centralindia
+  VM_NAME: gh-runner-aks-b1ms
+  VM_SIZE: Standard_B1ms
+  # KeyVault names must be globally unique and <= 24 chars. Using run_id to ensure uniqueness.
+  KEYVAULT_NAME: kv-gh-run-${{ github.run_id }}
+
+jobs:
+  runner-lifecycle:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Azure Login
+      uses: azure/login@v2
+      with:
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+
+    #################################################################
+    # CREATE
+    #################################################################
+    - name: Create Resource Group
+      if: inputs.action == 'create'
+      run: |
+        az group create --name ${{ env.RG_NAME }} --location ${{ env.LOCATION }}
+
+    - name: Create Key Vault & Set Policies
+      if: inputs.action == 'create'
+      run: |
+        # Using standard access policies for immediate secret creation (avoids RBAC propagation delay)
+        az keyvault create \
+          --name ${{ env.KEYVAULT_NAME }} \
+          --resource-group ${{ env.RG_NAME }} \
+          --location ${{ env.LOCATION }} \
+          --enable-rbac-authorization false
+          
+        # Grant the executing Service Principal permission to set secrets
+        az keyvault set-policy \
+          --name ${{ env.KEYVAULT_NAME }} \
+          --spn ${{ secrets.AZURE_CLIENT_ID }} \
+          --secret-permissions set get list delete
+
+    - name: Save VM Credentials To Key Vault
+      if: inputs.action == 'create'
+      run: |
+        az keyvault secret set \
+          --vault-name ${{ env.KEYVAULT_NAME }} \
+          --name vm-admin-username \
+          --value "${{ secrets.VM_ADMIN_USERNAME }}"
+
+        az keyvault secret set \
+          --vault-name ${{ env.KEYVAULT_NAME }} \
+          --name vm-admin-password \
+          --value "${{ secrets.VM_ADMIN_PASSWORD }}"
+
+    - name: Create VM
+      if: inputs.action == 'create'
+      run: |
+        PUBLIC_IP_ARG="--public-ip-address \"\""
+        if [ "${{ inputs.enable_public_ip }}" = "true" ]; then
+          PUBLIC_IP_ARG="--public-ip-sku Standard"
+        fi
+
+        az vm create \
+          --resource-group ${{ env.RG_NAME }} \
+          --name ${{ env.VM_NAME }} \
+          --image Ubuntu2204 \
+          --size ${{ env.VM_SIZE }} \
+          --storage-sku StandardSSD_LRS \
+          --admin-username "${{ secrets.VM_ADMIN_USERNAME }}" \
+          --admin-password "${{ secrets.VM_ADMIN_PASSWORD }}" \
+          --authentication-type password \
+          --assign-identity \
+          $PUBLIC_IP_ARG
+
+    - name: Assign Roles to VM Identity
+      if: inputs.action == 'create'
+      run: |
+        PRINCIPAL_ID=$(az vm identity show \
+          --resource-group ${{ env.RG_NAME }} \
+          --name ${{ env.VM_NAME }} \
+          --query principalId \
+          -o tsv)
+
+        az role assignment create \
+          --assignee $PRINCIPAL_ID \
+          --role "Contributor" \
+          --scope /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.RG_NAME }}
+
+        az role assignment create \
+          --assignee $PRINCIPAL_ID \
+          --role "User Access Administrator" \
+          --scope /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.RG_NAME }}
+
+    - name: Install GitHub Runner via Azure RunCommand
+      if: inputs.action == 'create'
+      env:
+        GH_URL: ${{ inputs.github_repo_url }}
+        GH_TOKEN: ${{ secrets.GH_RUNNER_TOKEN }}
+        ADMIN_USER: ${{ secrets.VM_ADMIN_USERNAME }}
+      run: |
+        # Use Azure RunCommand to securely execute the script on the VM via Azure Control Plane
+        # This completely avoids SSH and the need for a Public IP Address.
+        cat << EOF > install-runner.sh
+        #!/bin/bash
+        sudo apt update
+        sudo apt install -y curl tar git jq
+        
+        # Run the installation as the admin user, not root
+        su - ${ADMIN_USER} -c "
+          mkdir -p actions-runner && cd actions-runner
+          curl -o actions-runner.tar.gz -L https://github.com/actions/runner/releases/download/v2.325.0/actions-runner-linux-x64-2.325.0.tar.gz
+          tar xzf actions-runner.tar.gz
+          
+          ./config.sh --url ${GH_URL} --token ${GH_TOKEN} --unattended --ephemeral
+          sudo ./svc.sh install
+          sudo ./svc.sh start
+        "
+        EOF
+        
+        az vm run-command invoke \
+          --resource-group ${{ env.RG_NAME }} \
+          --name ${{ env.VM_NAME }} \
+          --command-id RunShellScript \
+          --scripts @install-runner.sh
+
+    #################################################################
+    # DESTROY
+    #################################################################
+    - name: Destroy Resource Group
+      if: inputs.action == 'destroy'
+      run: |
+        az group delete \
+          --name ${{ env.RG_NAME }} \
+          --yes \
+          --no-wait

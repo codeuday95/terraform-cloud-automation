@@ -5,13 +5,14 @@ on:
     branches:
       - main
     paths:
-      - 'workloads/Workload-D-Aks-automation/Apps/hit-counter/**'
-      - '.github/workflows/workload-d.yml'
+      - 'Azure/workloads/Workload-D-Aks-automation/Apps/hit-counter/**'
+      - '.github/workflows/wkld-d-workload-App-d.yml'
   pull_request:
     branches:
       - main
     paths:
-      - 'workloads/Workload-D-Aks-automation/Apps/hit-counter/**'
+      - 'Azure/workloads/Workload-D-Aks-automation/Apps/hit-counter/**'
+  workflow_dispatch:
 
 env:
   REGISTRY: acrwkldddeveastus.azurecr.io
@@ -37,8 +38,8 @@ jobs:
       - name: Build Node.js Image (No Push)
         uses: docker/build-push-action@v5
         with:
-          context: ./workloads/Workload-D-Aks-automation/Apps/hit-counter
-          file: ./workloads/Workload-D-Aks-automation/Apps/hit-counter/NodeDockerfile
+          context: ./Azure/workloads/Workload-D-Aks-automation/Apps/hit-counter
+          file: ./Azure/workloads/Workload-D-Aks-automation/Apps/hit-counter/NodeDockerfile
           push: false
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_WEB }}:${{ env.IMAGE_TAG }}
           cache-from: type=gha
@@ -47,8 +48,8 @@ jobs:
       - name: Build MongoDB Image (No Push)
         uses: docker/build-push-action@v5
         with:
-          context: ./workloads/Workload-D-Aks-automation/Apps/hit-counter
-          file: ./workloads/Workload-D-Aks-automation/Apps/hit-counter/MongoDockerfile
+          context: ./Azure/workloads/Workload-D-Aks-automation/Apps/hit-counter
+          file: ./Azure/workloads/Workload-D-Aks-automation/Apps/hit-counter/MongoDockerfile
           push: false
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_MONGODB }}:${{ env.IMAGE_TAG }}
           cache-from: type=gha
@@ -110,8 +111,8 @@ jobs:
       - name: Push Node.js Image to ACR
         uses: docker/build-push-action@v5
         with:
-          context: ./workloads/Workload-D-Aks-automation/Apps/hit-counter
-          file: ./workloads/Workload-D-Aks-automation/Apps/hit-counter/NodeDockerfile
+          context: ./Azure/workloads/Workload-D-Aks-automation/Apps/hit-counter
+          file: ./Azure/workloads/Workload-D-Aks-automation/Apps/hit-counter/NodeDockerfile
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_WEB }}:${{ env.IMAGE_TAG }}, ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_WEB }}:latest
           cache-from: type=gha
@@ -120,8 +121,8 @@ jobs:
       - name: Push MongoDB Image to ACR
         uses: docker/build-push-action@v5
         with:
-          context: ./workloads/Workload-D-Aks-automation/Apps/hit-counter
-          file: ./workloads/Workload-D-Aks-automation/Apps/hit-counter/MongoDockerfile
+          context: ./Azure/workloads/Workload-D-Aks-automation/Apps/hit-counter
+          file: ./Azure/workloads/Workload-D-Aks-automation/Apps/hit-counter/MongoDockerfile
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_MONGODB }}:${{ env.IMAGE_TAG }}, ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_MONGODB }}:latest
           cache-from: type=gha

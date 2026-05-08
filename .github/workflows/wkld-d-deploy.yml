@@ -1,0 +1,70 @@
+name: Deploy Workload-D
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform (plan, apply, destroy)'
+        required: true
+        default: 'plan'
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+      auth_method:
+        description: 'Authentication Method for Terraform'
+        required: true
+        default: 'managed-identity'
+        type: choice
+        options:
+          - managed-identity
+          - service-principal
+
+env:
+  # Configure Azure provider authentication for Terraform dynamically based on the input
+  ARM_USE_MSI: ${{ inputs.auth_method == 'managed-identity' && 'true' || 'false' }}
+  ARM_CLIENT_ID: ${{ inputs.auth_method == 'service-principal' && secrets.AZURE_CLIENT_ID || '' }}
+  ARM_CLIENT_SECRET: ${{ inputs.auth_method == 'service-principal' && secrets.AZURE_CLIENT_SECRET || '' }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  
+  # Inject the subscription ID into our custom variables
+  TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  
+  # The directory where our Workload-D infra lives
+  WORKING_DIR: Azure/workloads/Workload-D-Aks-automation/Infra
+
+jobs:
+  terraform:
+    name: Terraform Execution
+    runs-on: self-hosted
+    
+    defaults:
+      run:
+        working-directory: ${{ env.WORKING_DIR }}
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: "1.5.7" # Or specify the exact version you prefer
+        terraform_wrapper: false
+
+    - name: Terraform Init
+      run: terraform init
+
+    - name: Terraform Plan
+      if: inputs.action == 'plan' || inputs.action == 'apply'
+      run: terraform plan -out=tfplan
+
+    - name: Terraform Apply
+      if: inputs.action == 'apply'
+      run: terraform apply -auto-approve tfplan
+
+    - name: Terraform Destroy
+      if: inputs.action == 'destroy'
+      run: terraform destroy -auto-approve

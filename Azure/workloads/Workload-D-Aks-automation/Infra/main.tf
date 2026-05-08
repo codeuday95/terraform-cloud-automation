@@ -48,13 +48,14 @@ module "aks" {
   default_pool_availability_zones = []
 
   # Identity & ACR Binding
-  use_managed_identity = true
+  use_managed_identity    = true
+  create_role_assignments = false
   
   # Construct the ACR ID manually so it's a known string at plan-time
-  # Nonsensitive is required because subscription_id is marked as sensitive
-  acr_ids = [
-    nonsensitive("/subscriptions/${var.subscription_id}/resourceGroups/${azurerm_resource_group.rg.name}/providers/Microsoft.ContainerRegistry/registries/${azurerm_container_registry.acr.name}")
-  ]
+  # Commented out because current user only has Contributor access (cannot write Role Assignments)
+  # acr_ids = [
+  #   nonsensitive("/subscriptions/${var.subscription_id}/resourceGroups/${azurerm_resource_group.rg.name}/providers/Microsoft.ContainerRegistry/registries/${azurerm_container_registry.acr.name}")
+  # ]
 
   depends_on = [azurerm_resource_group.rg]
   

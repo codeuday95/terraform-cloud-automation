@@ -62,12 +62,7 @@ module "aks" {
   tags = var.tags
 }
 
-data "azurerm_client_config" "current" {}
 
-// Lookup the Service Principal for the Terraform runner (by application/client ID)
-data "azuread_service_principal" "tf_runner" {
-  application_id = var.tf_sp_client_id
-}
 
 module "key_vault" {
   source              = "../../../modules/key_vault"

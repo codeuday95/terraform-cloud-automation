@@ -41,11 +41,10 @@ module "aks" {
   network_plugin = "azure"
 
   # Default Node Pool
-  default_node_pool_name          = "default"
-  default_node_pool_vm_size       = "Standard_DS2_v2"
-  default_pool_min_count          = 1
-  default_pool_max_count          = 3
-  default_pool_availability_zones = null
+  default_node_pool_name    = "default"
+  default_node_pool_vm_size = "Standard_DS2_v2"
+  default_pool_min_count    = 1
+  default_pool_max_count    = 3
 
   # Identity & ACR Binding
   use_managed_identity = true

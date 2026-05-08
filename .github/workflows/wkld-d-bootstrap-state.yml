@@ -1,0 +1,92 @@
+name: Bootstrap Terraform State
+
+on:
+  workflow_dispatch:
+    inputs:
+      location:
+        description: 'Azure Region for State Storage'
+        required: true
+        default: 'eastus'
+        type: string
+      environment:
+        description: 'Environment'
+        required: true
+        default: 'dev'
+        type: string
+
+env:
+  RG_NAME: "rg-tfstate-wkld-d-${{ inputs.environment }}-${{ inputs.location }}"
+  STORAGE_ACCOUNT_PREFIX: "tfstatewkldd${{ inputs.environment }}"
+  CONTAINER_NAME: "tfstate"
+
+jobs:
+  bootstrap:
+    name: Bootstrap Remote State
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Azure Login
+      uses: azure/login@v2
+      with:
+        creds: '{"clientId":"${{ secrets.AZURE_CLIENT_ID }}","clientSecret":"${{ secrets.AZURE_CLIENT_SECRET }}","subscriptionId":"${{ secrets.AZURE_SUBSCRIPTION_ID }}","tenantId":"${{ secrets.AZURE_TENANT_ID }}"}'
+
+    - name: Provision State Infrastructure
+      run: |
+        # 1. Create Resource Group
+        echo "Creating Resource Group: ${{ env.RG_NAME }}"
+        az group create \
+          --name ${{ env.RG_NAME }} \
+          --location ${{ inputs.location }} \
+          --tags Workload=wkld-d ManagedBy=AzureCLI
+        
+        # Using a static name perfectly matched to your Terraform config
+        # Name must be unique across all of Azure.
+        STORAGE_ACCOUNT_NAME="tfstatewkldd95"
+        
+        # 2. Check if Storage Account exists
+        echo "Checking if Storage Account $STORAGE_ACCOUNT_NAME exists..."
+        EXISTS=$(az storage account check-name --name $STORAGE_ACCOUNT_NAME --query nameAvailable -o tsv)
+        
+        if [ "$EXISTS" = "true" ]; then
+          echo "Storage account name is available. Creating..."
+          az storage account create \
+            --name $STORAGE_ACCOUNT_NAME \
+            --resource-group ${{ env.RG_NAME }} \
+            --location ${{ inputs.location }} \
+            --sku Standard_GRS \
+            --encryption-services blob \
+            --allow-blob-public-access false \
+            --tags Workload=wkld-d ManagedBy=AzureCLI
+            
+          # Enable blob versioning (critical for protecting state files from accidental deletion)
+          az storage account blob-service-properties update \
+            --account-name $STORAGE_ACCOUNT_NAME \
+            --resource-group ${{ env.RG_NAME }} \
+            --enable-versioning true
+        else
+          echo "Storage account already exists. Skipping creation."
+        fi
+        
+        # 3. Create Blob Container
+        echo "Creating Blob Container: ${{ env.CONTAINER_NAME }}"
+        # The Azure CLI will automatically query the Storage Account Key to create the container
+        az storage container create \
+          --name ${{ env.CONTAINER_NAME }} \
+          --account-name $STORAGE_ACCOUNT_NAME || true
+          
+        # 4. Print the Backend Configuration for Terraform
+        echo ""
+        echo "=========================================================="
+        echo "✅ BOOTSTRAP COMPLETE!"
+        echo "Update your providers.tf or versions.tf with this backend block:"
+        echo ""
+        echo "  backend \"azurerm\" {"
+        echo "    resource_group_name  = \"${{ env.RG_NAME }}\""
+        echo "    storage_account_name = \"$STORAGE_ACCOUNT_NAME\""
+        echo "    container_name       = \"${{ env.CONTAINER_NAME }}\""
+        echo "    key                  = \"wkld-d-infra.tfstate\""
+        echo "  }"
+        echo "=========================================================="

@@ -105,23 +105,29 @@ jobs:
       if: inputs.action == 'create'
       run: |
         PRINCIPAL_ID=$(az vm identity show \
-          --resource-group ${{ env.RG_NAME }} \
-          --name ${{ env.VM_NAME }} \
+          --resource-group "${{ env.RG_NAME }}" \
+          --name "${{ env.VM_NAME }}" \
           --query principalId \
           -o tsv)
 
         echo "Waiting 15 seconds for AAD propagation..."
         sleep 15
 
+        # Assign Contributor (This should work)
         az role assignment create \
-          --assignee $PRINCIPAL_ID \
+          --assignee-object-id "$PRINCIPAL_ID" \
+          --assignee-principal-type "ServicePrincipal" \
           --role "Contributor" \
-          --scope /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.RG_NAME }}
+          --scope "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.RG_NAME }}"
 
+        # NOTE: The following likely fails due to security policies (ABAC).
+        # Only run this if you have verified your Runner has 'Owner' 
+        # or an unrestricted 'Role Based Access Control Administrator' role.
         az role assignment create \
-          --assignee $PRINCIPAL_ID \
+          --assignee-object-id "$PRINCIPAL_ID" \
+          --assignee-principal-type "ServicePrincipal" \
           --role "User Access Administrator" \
-          --scope /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.RG_NAME }}
+          --scope "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.RG_NAME }}"
 
     - name: Install GitHub Runner via Azure RunCommand
       if: inputs.action == 'create'

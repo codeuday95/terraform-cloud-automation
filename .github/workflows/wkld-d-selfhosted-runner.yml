@@ -149,17 +149,6 @@ jobs:
         GH_TOKEN: ${{ secrets.GH_RUNNER_TOKEN }}
         ADMIN_USER: ${{ secrets.VM_ADMIN_USERNAME }}
       run: |
-        # Use the provided PAT to dynamically fetch a 1-hour ephemeral Registration Token
-        echo "Fetching Registration Token from GitHub API..."
-        REG_TOKEN=$(curl -sX POST -H "Authorization: token ${GH_TOKEN}" \
-          -H "Accept: application/vnd.github.v3+json" \
-          https://api.github.com/repos/${{ github.repository }}/actions/runners/registration-token | jq -r .token)
-
-        if [ "$REG_TOKEN" = "null" ] || [ -z "$REG_TOKEN" ]; then
-          echo "::error::Failed to retrieve registration token. Ensure GH_RUNNER_TOKEN is a valid Personal Access Token (PAT) with 'repo' scope."
-          exit 1
-        fi
-
         # Use Azure RunCommand to securely execute the script on the VM via Azure Control Plane
         # This completely avoids SSH and the need for a Public IP Address.
         cat << EOF > install-runner.sh
@@ -184,8 +173,8 @@ jobs:
           curl -o actions-runner.tar.gz -L https://github.com/actions/runner/releases/download/v2.325.0/actions-runner-linux-x64-2.325.0.tar.gz
           tar xzf actions-runner.tar.gz
           
-          # Pass the ephemeral token we just generated
-          ./config.sh --url ${GH_URL} --token ${REG_TOKEN} --unattended --ephemeral
+          # Pass the exact token provided in the secrets
+          ./config.sh --url ${GH_URL} --token ${GH_TOKEN} --unattended --ephemeral
           sudo ./svc.sh install
           sudo ./svc.sh start
         "

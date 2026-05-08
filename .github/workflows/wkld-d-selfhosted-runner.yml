@@ -213,19 +213,11 @@ jobs:
     #################################################################
     # DESTROY
     #################################################################
-    - name: Purge Key Vault and Destroy Resource Group
+    - name: Destroy Resource Group
       if: inputs.action == 'destroy'
       run: |
-        # Discover existing Key Vault dynamically since it was randomly generated
-        KV_NAME=$(az keyvault list --resource-group ${{ env.RG_NAME }} --query "[0].name" -o tsv 2>/dev/null || true)
-        
-        if [ -n "$KV_NAME" ]; then
-          echo "Found Key Vault: $KV_NAME. Deleting and purging..."
-          az keyvault delete --name $KV_NAME --resource-group ${{ env.RG_NAME }} || true
-          az keyvault purge --name $KV_NAME || true
-        fi
-
-        # Delete the resource group synchronously (pipeline waits until complete)
+        # Delete the resource group asynchronously so the pipeline finishes instantly
         az group delete \
           --name ${{ env.RG_NAME }} \
-          --yes
+          --yes \
+          --no-wait

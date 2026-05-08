@@ -174,7 +174,7 @@ jobs:
           tar xzf actions-runner.tar.gz
           
           # Pass the exact token provided in the secrets
-          ./config.sh --url ${GH_URL} --token ${GH_TOKEN} --unattended --ephemeral
+          ./config.sh --url ${GH_URL} --token ${GH_TOKEN} --unattended
           sudo ./svc.sh install
           sudo ./svc.sh start
         "

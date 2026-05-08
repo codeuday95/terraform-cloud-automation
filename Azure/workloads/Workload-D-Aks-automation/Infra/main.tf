@@ -64,6 +64,11 @@ module "aks" {
 
 data "azurerm_client_config" "current" {}
 
+// Lookup the Service Principal for the Terraform runner (by application/client ID)
+data "azuread_service_principal" "tf_runner" {
+  application_id = var.tf_sp_client_id
+}
+
 module "key_vault" {
   source              = "../../../modules/key_vault"
   name                = local.kv_name
@@ -87,6 +92,19 @@ resource "azurerm_key_vault_access_policy" "aks_kubelet" {
   ]
 }
 
+# Grant the Terraform runner SP permission to set secrets in the Key Vault
+resource "azurerm_key_vault_access_policy" "tf_runner" {
+  key_vault_id = module.key_vault.id
+  tenant_id    = data.azurerm_client_config.current.tenant_id
+  object_id    = data.azuread_service_principal.tf_runner.object_id
+
+  secret_permissions = [
+    "Get",
+    "List",
+    "Set"
+  ]
+}
+
 # Store ACR admin credentials in Key Vault so pipelines and operators
 # can retrieve them securely. Requires that the identity running
 # Terraform has permissions to set secrets on the Key Vault.
@@ -94,6 +112,7 @@ resource "azurerm_key_vault_secret" "acr_admin_username" {
   name         = "acr-admin-username"
   value        = azurerm_container_registry.acr.admin_username
   key_vault_id = module.key_vault.id
+  depends_on   = [azurerm_key_vault_access_policy.tf_runner]
 }
 
 resource "azurerm_key_vault_secret" "acr_admin_password" {
@@ -103,4 +122,5 @@ resource "azurerm_key_vault_secret" "acr_admin_password" {
   # appropriate password index or rotation mechanism.
   value        = azurerm_container_registry.acr.admin_passwords[0].value
   key_vault_id = module.key_vault.id
+  depends_on   = [azurerm_key_vault_access_policy.tf_runner]
 }

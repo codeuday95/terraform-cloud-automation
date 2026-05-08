@@ -11,3 +11,7 @@ terraform {
     key                  = "wkld-d-infra.tfstate"
   }
 }
+
+provider "azuread" {
+  # Uses the current Azure authentication context (az login or OIDC)
+}

@@ -154,7 +154,7 @@ jobs:
         cat << EOF > install-runner.sh
         #!/bin/bash
         sudo apt update
-        sudo apt install -y curl tar git jq
+        sudo apt install -y curl tar git jq unzip
         
         # Run the installation as the admin user, not root
         su - ${ADMIN_USER} -c "

@@ -48,6 +48,15 @@ jobs:
     - name: Checkout Code
       uses: actions/checkout@v4
 
+    - name: Install Prerequisites
+      run: |
+        if ! command -v unzip &> /dev/null; then
+          sudo apt-get update
+          sudo apt-get install -y unzip
+        else
+          echo "unzip is already installed, skipping."
+        fi
+
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
       with:

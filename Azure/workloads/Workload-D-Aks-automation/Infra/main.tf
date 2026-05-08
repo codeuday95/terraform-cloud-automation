@@ -86,3 +86,21 @@ resource "azurerm_key_vault_access_policy" "aks_kubelet" {
     "List"
   ]
 }
+
+# Store ACR admin credentials in Key Vault so pipelines and operators
+# can retrieve them securely. Requires that the identity running
+# Terraform has permissions to set secrets on the Key Vault.
+resource "azurerm_key_vault_secret" "acr_admin_username" {
+  name         = "acr-admin-username"
+  value        = azurerm_container_registry.acr.admin_username
+  key_vault_id = module.key_vault.id
+}
+
+resource "azurerm_key_vault_secret" "acr_admin_password" {
+  name         = "acr-admin-password"
+  # The container registry exposes admin_passwords as a list; use the
+  # first one. If rotation is used, update this to reference the
+  # appropriate password index or rotation mechanism.
+  value        = azurerm_container_registry.acr.admin_passwords[0].value
+  key_vault_id = module.key_vault.id
+}

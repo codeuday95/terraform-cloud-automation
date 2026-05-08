@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Chart.Name }}
+spec:
+  selector:
+    app: {{ .Chart.Name }}
+  ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 3000
+  type: LoadBalancer
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Chart.Name }}-database
+spec:
+  selector:
+    app: {{ .Chart.Name }}-database
+  ports:
+    - name: http
+      port: 27017
+      protocol: TCP
+      targetPort: 27017
+  type: ClusterIP

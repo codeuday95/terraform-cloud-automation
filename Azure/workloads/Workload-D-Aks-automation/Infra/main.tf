@@ -50,7 +50,7 @@ module "aks" {
   # Identity & ACR Binding
   use_managed_identity    = true
   create_role_assignments = false
-  
+
   # Construct the ACR ID manually so it's a known string at plan-time
   # Commented out because current user only has Contributor access (cannot write Role Assignments)
   # acr_ids = [
@@ -58,6 +58,31 @@ module "aks" {
   # ]
 
   depends_on = [azurerm_resource_group.rg]
-  
+
   tags = var.tags
+}
+
+data "azurerm_client_config" "current" {}
+
+module "key_vault" {
+  source              = "../../../modules/key_vault"
+  name                = local.kv_name
+  resource_group_name = azurerm_resource_group.rg.name
+  location            = azurerm_resource_group.rg.location
+  tenant_id           = data.azurerm_client_config.current.tenant_id
+
+  tags = var.tags
+}
+
+resource "azurerm_key_vault_access_policy" "aks_kubelet" {
+  key_vault_id = module.key_vault.id
+  tenant_id    = data.azurerm_client_config.current.tenant_id
+
+  # The Kubelet Identity is what the SecretProviderClass uses to fetch secrets
+  object_id = module.aks.kubelet_identity_object_id
+
+  secret_permissions = [
+    "Get",
+    "List"
+  ]
 }

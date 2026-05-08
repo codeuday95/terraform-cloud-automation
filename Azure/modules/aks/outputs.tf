@@ -54,6 +54,11 @@ output "kubelet_identity_object_id" {
   value       = azurerm_kubernetes_cluster.aks.kubelet_identity[0].object_id
 }
 
+output "kubelet_identity_client_id" {
+  description = "Client ID of kubelet identity"
+  value       = azurerm_kubernetes_cluster.aks.kubelet_identity[0].client_id
+}
+
 output "cluster_private_fqdn" {
   description = "Private FQDN of the cluster"
   value       = azurerm_kubernetes_cluster.aks.private_fqdn

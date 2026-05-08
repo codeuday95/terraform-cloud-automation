@@ -1,0 +1,14 @@
+{
+  "name": "hit-counter",
+  "version": "1.0.0",
+  "description": "A hit counter application",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.17.1",
+    "mongoose": "^6.2.2",
+    "ws": "^8.5.1"
+  }
+}

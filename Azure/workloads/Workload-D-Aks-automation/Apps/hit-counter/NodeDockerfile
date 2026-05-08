@@ -1,0 +1,28 @@
+FROM node:20-alpine AS base
+
+WORKDIR /app
+
+# Set production environment
+ENV NODE_ENV=production
+
+# Copy package files first
+COPY package*.json ./
+
+# Install dependencies with ci for reproducibility
+RUN npm ci --only=production
+
+# Copy rest of the app
+COPY . .
+
+# Create non-root user for security
+RUN addgroup -g 1001 -S app && adduser -S app -u 1001
+
+# Change ownership to app user
+RUN chown -R app:app /app
+
+# Switch to non-root user
+USER app
+
+EXPOSE 3000
+
+CMD ["npm", "start"]

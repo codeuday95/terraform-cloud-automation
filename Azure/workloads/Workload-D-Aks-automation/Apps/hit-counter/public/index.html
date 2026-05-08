@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Hit Counter</title>
+    <link rel="stylesheet" type="text/css" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Welcome to the Hit Counter!</h1>
+        <p>This page has been viewed <span id="count"></span> times.</p>
+        <button class="btn" id="hit-btn">Hit Me!</button>
+        <p>The current stage is: <span id="stage"></span></p>
+
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+        $(document).ready(function() {
+            // Function to update hit count
+            function updateHitCount() {
+                $.get("/hits", function(data) {
+                    $("#count").text(data.hits);
+                });
+            }
+
+                // Function to update stage
+            function updateStage() {
+                $.get("/stage", function(data) {
+                    $("#stage").text(data.stage);
+                });
+            }
+
+            // Initial update of hit count
+            updateHitCount();
+            updateStage();
+
+            // Button click event to manually increment hit count
+            $("#hit-btn").click(function() {
+                $.post("/hits", function() {
+                    updateHitCount();
+                });
+            });
+
+
+
+            // WebSocket for real-time updates
+            const socket = new WebSocket(`ws://${window.location.hostname}:${window.location.port}`);
+            socket.addEventListener('message', (event) => {
+                const count = parseInt(event.data);
+                if (!isNaN(count)) {
+                    $("#count").text(count);
+                }
+            });
+        });
+    </script>
+</body>
+</html>

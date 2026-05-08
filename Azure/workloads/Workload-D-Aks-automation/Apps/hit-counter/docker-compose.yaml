@@ -1,0 +1,27 @@
+services:
+  node:
+    build:
+      context: .
+      dockerfile: NodeDockerfile
+    image: hitcounter_web:1.0
+    ports:
+      - "80:3000"
+    environment:
+      - CONNECTION_STRING=mongodb://mongoadmin:secret@mongodb:27017/?authMechanism=DEFAULT
+      - STAGE=DEV
+    depends_on:
+      - mongodb
+  mongodb:
+    build:
+      context: .
+      dockerfile: MongoDockerfile
+    image: hitcounter_mongodb:1.0
+    ports:
+      - "27017:27017"
+    volumes:
+      - data:/data/db
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=mongoadmin
+      - MONGO_INITDB_ROOT_PASSWORD=secret
+volumes:
+  data:

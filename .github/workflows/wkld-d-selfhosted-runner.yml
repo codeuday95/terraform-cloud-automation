@@ -1,4 +1,4 @@
-name: Azure Self Hosted Runner
+name: Azure Self Hosted Runner Registration
 
 on:
   workflow_dispatch:

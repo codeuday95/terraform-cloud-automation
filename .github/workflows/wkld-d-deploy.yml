@@ -1,4 +1,4 @@
-name: Deploy Workload-D
+name: Deploy Workload-D Infra
 
 on:
   workflow_dispatch:

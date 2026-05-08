@@ -26,8 +26,6 @@ env:
   LOCATION: centralindia
   VM_NAME: gh-runner-aks-b1ms
   VM_SIZE: Standard_B1ms
-  # KeyVault names must be globally unique and <= 24 chars. Using run_id to ensure uniqueness.
-  KEYVAULT_NAME: kv-gh-run-${{ github.run_id }}
 
 jobs:
   runner-lifecycle:
@@ -50,21 +48,36 @@ jobs:
       run: |
         az group create --name ${{ env.RG_NAME }} --location ${{ env.LOCATION }}
 
-    - name: Create Key Vault & Set Policies
+    - name: Create or Reuse Key Vault & Set Policies
       if: inputs.action == 'create'
       run: |
-        # Using standard access policies for immediate secret creation (avoids RBAC propagation delay)
-        az keyvault create \
-          --name ${{ env.KEYVAULT_NAME }} \
-          --resource-group ${{ env.RG_NAME }} \
-          --location ${{ env.LOCATION }} \
-          --enable-rbac-authorization false
+        EXISTING_KV=$(az keyvault list --resource-group ${{ env.RG_NAME }} --query "[0].name" -o tsv 2>/dev/null || true)
+        
+        if [ -n "$EXISTING_KV" ]; then
+          echo "Found existing Key Vault: $EXISTING_KV"
+          echo "KEYVAULT_NAME=$EXISTING_KV" >> $GITHUB_ENV
           
-        # Grant the executing Service Principal permission to set secrets
-        az keyvault set-policy \
-          --name ${{ env.KEYVAULT_NAME }} \
-          --spn ${{ secrets.AZURE_CLIENT_ID }} \
-          --secret-permissions set get list delete
+          # Ensure SPN has permission
+          az keyvault set-policy \
+            --name $EXISTING_KV \
+            --spn ${{ secrets.AZURE_CLIENT_ID }} \
+            --secret-permissions set get list delete
+        else
+          NEW_KV_NAME="kv-run-${{ github.run_id }}"
+          echo "Creating new Key Vault: $NEW_KV_NAME"
+          echo "KEYVAULT_NAME=$NEW_KV_NAME" >> $GITHUB_ENV
+          
+          az keyvault create \
+            --name $NEW_KV_NAME \
+            --resource-group ${{ env.RG_NAME }} \
+            --location ${{ env.LOCATION }} \
+            --enable-rbac-authorization false
+            
+          az keyvault set-policy \
+            --name $NEW_KV_NAME \
+            --spn ${{ secrets.AZURE_CLIENT_ID }} \
+            --secret-permissions set get list delete
+        fi
 
     - name: Save VM Credentials To Key Vault
       if: inputs.action == 'create'
@@ -113,21 +126,21 @@ jobs:
         echo "Waiting 15 seconds for AAD propagation..."
         sleep 15
 
-        # Assign Contributor (This should work)
-        az role assignment create \
-          --assignee-object-id "$PRINCIPAL_ID" \
-          --assignee-principal-type "ServicePrincipal" \
-          --role "Contributor" \
-          --scope "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.RG_NAME }}"
+        # # Assign Contributor (This should work)
+        # az role assignment create \
+        #   --assignee-object-id "$PRINCIPAL_ID" \
+        #   --assignee-principal-type "ServicePrincipal" \
+        #   --role "Contributor" \
+        #   --scope "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.RG_NAME }}"
 
-        # NOTE: The following likely fails due to security policies (ABAC).
-        # Only run this if you have verified your Runner has 'Owner' 
-        # or an unrestricted 'Role Based Access Control Administrator' role.
-        az role assignment create \
-          --assignee-object-id "$PRINCIPAL_ID" \
-          --assignee-principal-type "ServicePrincipal" \
-          --role "User Access Administrator" \
-          --scope "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.RG_NAME }}"
+        # NOTE: The User Access Administrator role is commented out for now.
+        # It typically requires elevated/unrestricted ABAC policies to grant.
+        # az role assignment create \
+        #   --assignee-object-id "$PRINCIPAL_ID" \
+        #   --assignee-principal-type "ServicePrincipal" \
+        #   --role "User Access Administrator" \
+        #   --scope "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.RG_NAME }}" || \
+        #   echo "::warning::Could not assign 'User Access Administrator' due to ABAC restrictions."
 
     - name: Install GitHub Runner via Azure RunCommand
       if: inputs.action == 'create'
@@ -164,10 +177,19 @@ jobs:
     #################################################################
     # DESTROY
     #################################################################
-    - name: Destroy Resource Group
+    - name: Purge Key Vault and Destroy Resource Group
       if: inputs.action == 'destroy'
       run: |
+        # Discover existing Key Vault dynamically since it was randomly generated
+        KV_NAME=$(az keyvault list --resource-group ${{ env.RG_NAME }} --query "[0].name" -o tsv 2>/dev/null || true)
+        
+        if [ -n "$KV_NAME" ]; then
+          echo "Found Key Vault: $KV_NAME. Deleting and purging..."
+          az keyvault delete --name $KV_NAME --resource-group ${{ env.RG_NAME }} || true
+          az keyvault purge --name $KV_NAME || true
+        fi
+
+        # Delete the resource group synchronously (pipeline waits until complete)
         az group delete \
           --name ${{ env.RG_NAME }} \
-          --yes \
-          --no-wait
+          --yes

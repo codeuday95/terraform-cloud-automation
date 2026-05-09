@@ -61,28 +61,3 @@ module "aks" {
 
   tags = var.tags
 }
-
-
-
-module "key_vault" {
-  source              = "../../../modules/key_vault"
-  name                = local.kv_name
-  resource_group_name = azurerm_resource_group.rg.name
-  location            = azurerm_resource_group.rg.location
-  tenant_id           = data.azurerm_client_config.current.tenant_id
-
-  tags = var.tags
-}
-
-resource "azurerm_key_vault_access_policy" "aks_kubelet" {
-  key_vault_id = module.key_vault.id
-  tenant_id    = data.azurerm_client_config.current.tenant_id
-
-  # The Kubelet Identity is what the SecretProviderClass uses to fetch secrets
-  object_id = module.aks.kubelet_identity_object_id
-
-  secret_permissions = [
-    "Get",
-    "List"
-  ]
-}

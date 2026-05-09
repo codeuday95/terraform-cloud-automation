@@ -24,16 +24,6 @@ output "aks_kube_config_command" {
   value       = "az aks get-credentials --resource-group ${azurerm_resource_group.rg.name} --name ${module.aks.cluster_name}"
 }
 
-output "key_vault_name" {
-  description = "The name of the provisioned Azure Key Vault"
-  value       = module.key_vault.name
-}
-
-output "key_vault_tenant_id" {
-  description = "The Tenant ID of the Azure Key Vault"
-  value       = data.azurerm_client_config.current.tenant_id
-}
-
 output "aks_kubelet_client_id" {
   description = "The Client ID of the AKS Kubelet Identity (Used for SecretProviderClass)"
   value       = module.aks.kubelet_identity_client_id

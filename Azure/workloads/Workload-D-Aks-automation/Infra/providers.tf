@@ -12,6 +12,3 @@ terraform {
   }
 }
 
-provider "azuread" {
-  # Uses the current Azure authentication context (az login or OIDC)
-}

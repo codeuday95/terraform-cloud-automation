@@ -43,10 +43,3 @@ variable "tags" {
     Env       = "dev"
   }
 }
-
-variable "tf_sp_client_id" {
-  description = "Client (application) ID of the Service Principal that runs Terraform and should be granted Key Vault secret permissions"
-  type        = string
-  sensitive   = true
-  default     = ""
-}
